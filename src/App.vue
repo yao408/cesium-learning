@@ -4,6 +4,7 @@
       <router-link to="/multi-vehicle" class="nav-link">🚗 多车模拟</router-link>
       <router-link to="/flood" class="nav-link">🌊 洪水模拟</router-link>
       <router-link to="/viewshed" class="nav-link">👁️ 通视分析</router-link>
+      <router-link to="/data-import" class="nav-link">📦 数据加载</router-link>
     </nav>
     <div class="router-view"><router-view /></div>
   </div>

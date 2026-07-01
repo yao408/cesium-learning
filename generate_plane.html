@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>生成平面 glTF</title>
+</head>
+<body>
+  <h1>生成平面 glTF 文件</h1>
+  <p>请打开浏览器控制台（F12）查看输出，或等待自动下载</p>
+  <button id="downloadBtn">下载 plane.glb</button>
+  
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+    function generatePlane() {
+      // 创建一个平面几何体（1x1，带 UV）
+      const geometry = new THREE.PlaneGeometry(1, 1);
+      
+      // 创建材质（白色，半透明，方便看到效果）
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.8,
+        side: THREE.DoubleSide,
+      });
+      
+      const mesh = new THREE.Mesh(geometry, material);
+      
+      // 导出为 glb
+      const exporter = new GLTFExporter();
+      exporter.parse(
+        mesh,
+        (glb) => {
+          // 下载为文件
+          const blob = new Blob([glb], { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'plane.glb';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          console.log('✅ plane.glb 已下载');
+        },
+        (error) => {
+          console.error('导出失败:', error);
+        },
+        { binary: true }
+      );
+    }
+
+    document.getElementById('downloadBtn').addEventListener('click', generatePlane);
+    console.log('点击 "下载 plane.glb" 按钮生成文件');
+  </script>
+</body>
+</html>

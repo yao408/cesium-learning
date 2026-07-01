@@ -6,9 +6,6 @@
           <span class="badge">Cesium + Vue3</span>
         </div>
         <div class="toolbar-right">
-          <button @click="toggleViewMode" class="btn btn-sm">
-            {{ is3DMode ? '🗺️ 2D' : '🌍 3D' }}
-          </button>
           <button v-if="isSimulating" @click="toggleCameraLock" class="btn btn-sm">
             {{ cameraLocked ? '🔓 解锁' : '🔒 锁定' }}
           </button>
@@ -21,7 +18,6 @@
       <div class="main-container">
         <ControlPanel
           :activeLayer="activeLayer"
-          :drawingMode="drawingMode"
           :routeMode="routeMode"
           :routeStart="routeStart"
           :routeEnd="routeEnd"
@@ -35,12 +31,9 @@
           :currentSegment="currentSegment"
           :measureMode="measureMode"
           :measureResult="measureResult"
-          :is3DMode="is3DMode"
           :vehicleSlots="vehicleSlots"
           :activeSlotId="activeSlotId"
           @switchBaseLayer="switchBaseLayer"
-          @startDrawing="startDrawing"
-          @finishDrawing="finishDrawing"
           @clearUserPath="clearUserPath"
           @startSimulation="startSimulation"
           @pauseSimulation="pauseSimulation"
@@ -48,7 +41,6 @@
           @update:vehicleSpeed="v => vehicleSpeed = v"
           @startMeasure="startMeasure"
           @clearMeasure="clearMeasure"
-          @toggleViewMode="toggleViewMode"
           @startRoutePlanning="startRoutePlanning"
           @cancelRoutePlanning="cancelRoutePlanning"
           @selectRoute="selectRoute"
@@ -70,9 +62,6 @@
             :showAlert="showAlert"
             :alertType="alertType"
             :alertMessage="alertMessage"
-            :currentZone="currentZone"
-            :roadCondition="roadCondition"
-            :roadConditionText="roadConditionText"
           />
         </div>
   
@@ -108,9 +97,9 @@
   const cesiumContainer = ref(null)
   let viewer = null
   let vehicleEntity = null
-  let osmBuildings = null
-  let drawingEntities = []
+  let routeMarkerEntities = []
   let measureEntities = []
+  let _measureMarkers = []
   let positionProperty = null
   let mouseHandler = null
   let clickHandler = null
@@ -118,9 +107,10 @@
   let clockTimer = null
   let alertTimer = null
   
-  const activeLayer = ref('amap')
+  // ==================== 车辆槽位管理 ====================
+  
+  const activeLayer = ref('satellite')
   const measureMode = ref(null)
-  const drawingMode = ref(false)
   const routeMode = ref(false)      // 路径规划模式：选起点→终点→自动获取真实道路
   const routeStart = ref(null)      // 起点 { lat, lng }
   const routeEnd = ref(null)        // 终点 { lat, lng }
@@ -140,14 +130,11 @@
   const centerLng = ref(116.4074)
   const measureResult = ref('')
   const systemTime = ref('')
-  const is3DMode = ref(true)
   const cameraMode = ref('bird') // 'bird' 俯视
   const cameraLocked = ref(true)  // true=自动跟车，false=手动控制
   const showAlert = ref(false)
   const alertType = ref('info')
   const alertMessage = ref('')
-  const currentZone = ref('')
-  const roadCondition = ref('畅通')
   
   let vehicleHeading = 0
   
@@ -166,8 +153,8 @@
   
   function addVehicleSlot() {
     const idx = vehicleSlots.value.length
-    const hue = (idx * 137.5) % 360
-    const color = `hsl(${hue}, 70%, 55%)`
+    const colors = ['#1e3a8a', '#2563eb', '#0f172a', '#1e40af', '#3b82f6']
+    const color = colors[idx % colors.length]
     const slot = { id: nextSlotId, name: `卡车 ${idx + 1}`, color, path: [], entity: null, positionProperty: null, heading: 0, progress: 0, pathCorridor: null, pathGround: null, pathStartMarker: null, pathWidth: 4, pathOpacity: 0.7, pathStyle: 'solid', pathOutlineWidth: 2, pathOutlineOpacity: 0.9, pathOutlineEntity: null }
     vehicleSlots.value.push(slot)
     activeSlotId.value = nextSlotId
@@ -233,16 +220,11 @@
       }
     }
   }
-  let _drawingMarkers = []
-  let _measureMarkers = []
+  
   
   const gcj02Display = computed(() => {
     const g = mouseGCJ02.value
     return `${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}`
-  })
-  const roadConditionText = computed(() => {
-    const map = { '畅通': '🟢 畅通', '缓行': '🟡 缓行', '拥堵': '🔴 拥堵' }
-    return map[roadCondition.value] || ''
   })
   const trajectoryPath = computed(() => [
     [39.9078, 116.3565], [39.9075, 116.3650], [39.9070, 116.3740],
@@ -264,17 +246,12 @@
   // ==================== 初始化 ====================
   onMounted(() => {
     viewer = new Cesium.Viewer(cesiumContainer.value, {
-      imageryProvider: new Cesium.UrlTemplateImageryProvider({
-        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-        subdomains: ['1', '2', '3', '4'],
-        minimumLevel: 3,
-        maximumLevel: 18,
-      }),
-      terrain: undefined,
+      terrain: Cesium.Terrain.fromWorldTerrain(),
       animation: false, timeline: false, baseLayerPicker: false,
       fullscreenButton: false, geocoder: false, homeButton: false,
       sceneModePicker: false, navigationHelpButton: false,
       infoBox: false, selectionIndicator: false,
+      sceneMode: Cesium.SceneMode.SCENE3D,
     })
     viewer.scene.globe.enableLighting = true
     viewer.scene.globe.depthTestAgainstTerrain = true
@@ -283,14 +260,22 @@
     viewer.shadows = true
     viewer.scene.msaaSamples = 4
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 50
+    viewer.imageryLayers.removeAll()
+    viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
+      subdomains: ['1', '2', '3', '4'],
+      minimumLevel: 3,
+      maximumLevel: 18,
+    }))
     viewer.scene.renderError.addEventListener(() => {
       console.warn('Cesium render error - check corridor/groundPrimitive entities')
     })
   
-    // 触摸板双指缩放：用原生事件接管，灵敏度可控
+    // 倾斜视角：右键拖动 / 触控板双指 / Ctrl+左键拖动
     viewer.scene.screenSpaceCameraController.tiltEventTypes = [
+      Cesium.CameraEventType.RIGHT_DRAG,
       Cesium.CameraEventType.PINCH,
-      Cesium.CameraEventType.MIDDLE_DRAG,
+      { eventType: Cesium.CameraEventType.LEFT_DRAG, modifier: Cesium.KeyboardEventModifier.CTRL },
     ]
     viewer.scene.canvas.addEventListener('wheel', (e) => {
       if (e.ctrlKey) {
@@ -359,9 +344,7 @@
   function onPostRender() {
     if (!isSimulating.value || !viewer) return
     const activeSlot = vehicleSlots.value.find(s => s.id === activeSlotId.value)
-    if (!activeSlot || !activeSlot.positionProperty) return
-    positionProperty = activeSlot.positionProperty
-    vehicleEntity = activeSlot.entity
+
     try {
       const current = viewer.clock.currentTime
       const stop = viewer.clock.stopTime
@@ -372,18 +355,22 @@
       } else {
         viewer.clock.currentTime = viewer.clock.startTime.clone()
       }
-  
+
       const start = Cesium.JulianDate.toDate(viewer.clock.startTime).getTime()
       const stopMs = Cesium.JulianDate.toDate(viewer.clock.stopTime).getTime()
       const cur = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime()
-      vehicleProgress.value = activeSlot.progress = ((cur - start) / (stopMs - start)) * 100
+      vehicleProgress.value = ((cur - start) / (stopMs - start)) * 100
+
+      if (!activeSlot || !activeSlot.positionProperty) return
+      positionProperty = activeSlot.positionProperty
+      vehicleEntity = activeSlot.entity
+      activeSlot.progress = vehicleProgress.value
   
       const pos = activeSlot.positionProperty.getValue(viewer.clock.currentTime)
       if (Cesium.defined(pos)) {
         const cartographic = Cesium.Cartographic.fromCartesian(pos)
         const lat = Cesium.Math.toDegrees(cartographic.latitude)
         const lng = Cesium.Math.toDegrees(cartographic.longitude)
-        updateRoadCondition()
         updateCurrentSegment()
   
         if (cameraLocked.value) {
@@ -394,34 +381,25 @@
     } catch (e) { /* ignore */ }
   }
   
-  // ==================== 现代化标记图标 ====================
-  function createMarkerIcon(text, bgColor, textColor = '#fff') {
-    const size = 48
-    const canvas = document.createElement('canvas')
-    canvas.width = size
-    canvas.height = size
-    const ctx = canvas.getContext('2d')
-    // 阴影
-    ctx.shadowColor = 'rgba(0,0,0,0.35)'
-    ctx.shadowBlur = 6
-    ctx.shadowOffsetY = 2
-    // 圆形背景
-    ctx.beginPath()
-    ctx.arc(size / 2, size / 2, size / 2 - 3, 0, Math.PI * 2)
-    ctx.fillStyle = bgColor
-    ctx.fill()
-    // 白色边框
-    ctx.shadowColor = 'transparent'
-    ctx.lineWidth = 2.5
-    ctx.strokeStyle = '#fff'
-    ctx.stroke()
-    // 文字
-    ctx.fillStyle = textColor
-    ctx.font = 'bold 22px "Microsoft YaHei", "PingFang SC", sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(text, size / 2, size / 2)
-    return canvas.toDataURL()
+  // ==================== SVG 矢量标记图标（栅格底图最佳选择）====================
+  function createMarkerIcon(bgColor) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="80" viewBox="0 0 64 80">
+      <defs>
+        <radialGradient id="g" cx="35%" cy="30%" r="60%">
+          <stop offset="0%" stop-color="#fff" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#000" stop-opacity="0.15"/>
+        </radialGradient>
+        <filter id="s">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.4"/>
+        </filter>
+      </defs>
+      <g filter="url(#s)">
+        <path d="M12 24C12 12 22 4 32 4s20 8 20 20c0 8-5 20-20 38-15-18-20-30-20-38z" fill="${bgColor}" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
+      </g>
+      <circle cx="32" cy="24" r="20" fill="url(#g)"/>
+      <circle cx="32" cy="24" r="6" fill="#fff"/>
+    </svg>`
+    return 'data:image/svg+xml,' + encodeURIComponent(svg)
   }
   
   // ==================== 轨迹线 + SampledPositionProperty ====================
@@ -447,8 +425,7 @@
       clearSlotPathVisuals(slot)
       let slotColor
       try { slotColor = Cesium.Color.fromCssColorString(slot.color) } catch (e) { slotColor = Cesium.Color.RED }
-      if (is3DMode.value) {
-        slot.pathCorridor = viewer.entities.add({
+      slot.pathCorridor = viewer.entities.add({
           id: `slot-${slot.id}-path-corridor`,
           corridor: {
             positions,
@@ -458,7 +435,6 @@
             clampToGround: true,
           },
         })
-      }
       if (slot.pathStyle === 'outline') {
         const bodyWidth = slot.pathWidth || 6
         const outlineWidth = slot.pathOutlineWidth || 2
@@ -500,17 +476,17 @@
           },
         })
       }
-      const iconUrl = createMarkerIcon(slot.name.replace('卡车 ', 'S'), slot.color)
+      // 图钉标记
+      const iconUrl = createMarkerIcon(slot.color)
       slot.pathStartMarker = viewer.entities.add({
         id: `slot-${slot.id}-path-marker`,
         position: positions[0],
         billboard: {
           image: iconUrl,
-          width: 40,
-          height: 40,
+          width: 64,
+          height: 80,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          eyeOffset: new Cesium.Cartesian3(0, 0, 20),
-          pixelOffset: new Cesium.Cartesian2(0, -10),
         },
       })
     } catch (e) {
@@ -586,6 +562,74 @@
     }
     const slotsWithPath = vehicleSlots.value.filter(s => s.path.length >= 2)
     if (slotsWithPath.length === 0) { showPopupAlert('请先为至少一辆车设置路径', 'warning'); return }
+
+    if (isSimulating.value) {
+      // 模拟已在运行：只添加新车，不重启
+      const newSlots = slotsWithPath.filter(s => !s.positionProperty)
+      if (newSlots.length === 0) {
+        showPopupAlert('所有有路径的车已在模拟中', 'info')
+        return
+      }
+      const currentTime = viewer.clock.currentTime
+      let maxNewTime = 0
+      const builds = newSlots.map(async (slot) => {
+        const { prop, startTime, totalTime } = await buildPositionProperty(slot.path)
+        // 偏移到当前时钟时间，让新车从当前位置开始
+        const offset = Cesium.JulianDate.secondsDifference(currentTime, startTime)
+        const samples = []
+        const sampleCount = slot.path.length
+        for (let i = 0; i < sampleCount; i++) {
+          const t = Cesium.JulianDate.addSeconds(startTime, (i / (sampleCount - 1)) * totalTime, new Cesium.JulianDate())
+          const shifted = Cesium.JulianDate.addSeconds(t, offset, new Cesium.JulianDate())
+          samples.push({ time: shifted, idx: i })
+        }
+        const shiftedProp = new Cesium.SampledPositionProperty()
+        shiftedProp.setInterpolationOptions({ interpolationDegree: 1, interpolationAlgorithm: Cesium.LinearApproximation })
+        const gcjPath = slot.path.map(([lat, lng]) => wgs84ToGCJ02(lat, lng))
+        const carts = gcjPath.map(({ lat, lng }) => Cesium.Cartographic.fromDegrees(lng, lat))
+        let heights
+        try { heights = (await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, carts)).map((c) => c.height) }
+        catch (e) { heights = gcjPath.map(() => 0) }
+        for (const s of samples) {
+          const p = gcjPath[s.idx]
+          shiftedProp.addSample(s.time, Cesium.Cartesian3.fromDegrees(p.lng, p.lat, heights[s.idx] + 10))
+        }
+        shiftedProp.forwardExtrapolationType = Cesium.ExtrapolationType.HOLD
+        shiftedProp.backwardExtrapolationType = Cesium.ExtrapolationType.HOLD
+        slot.positionProperty = shiftedProp
+        if (totalTime > maxNewTime) maxNewTime = totalTime
+        return { slot, prop: shiftedProp, totalTime }
+      })
+      await Promise.all(builds)
+      const currentDuration = Cesium.JulianDate.secondsDifference(viewer.clock.stopTime, viewer.clock.startTime)
+      if (maxNewTime > currentDuration) {
+        viewer.clock.stopTime = Cesium.JulianDate.addSeconds(viewer.clock.startTime, maxNewTime, new Cesium.JulianDate())
+      }
+      newSlots.forEach(slot => {
+        if (slot.entity) viewer.entities.remove(slot.entity)
+        slot.entity = viewer.entities.add({
+          position: slot.positionProperty,
+          orientation: new Cesium.VelocityOrientationProperty(slot.positionProperty),
+          model: {
+            uri: 'https://cdn.jsdelivr.net/gh/CesiumGS/cesium@main/Apps/SampleData/models/CesiumMilkTruck/CesiumMilkTruck.glb',
+            scale: 80,
+            minimumPixelSize: 64,
+          },
+          ellipsoid: {
+            radii: new Cesium.Cartesian3(12, 6, 4),
+            material: Cesium.Color.fromCssColorString(slot.color).withAlpha(1.0),
+            outline: true,
+            outlineColor: Cesium.Color.fromCssColorString('#ff9100'),
+            outlineWidth: 2,
+          },
+        })
+      })
+      drawPathLine()
+      showPopupAlert(`🚗 已加入 ${newSlots.length} 辆新车`, 'info')
+      return
+    }
+
+    // 首次启动模拟
     vehicleProgress.value = 0
     isSimulating.value = true
   
@@ -660,8 +704,6 @@
   function stopSimulation() {
     isSimulating.value = false
     isPaused.value = false
-    currentZone.value = ''
-    roadCondition.value = '畅通'
     if (viewer) viewer.clock.shouldAnimate = false
     vehicleSlots.value.forEach(slot => {
       if (slot.entity) { viewer.entities.remove(slot.entity); slot.entity = null }
@@ -681,10 +723,6 @@
     drawPathLine()
   }, { deep: true })
   
-  function updateRoadCondition() {
-    roadCondition.value = '畅通'
-  }
-  
   function updateCurrentSegment() {
     const path = getActivePath()
     const total = calcTotalDistance(path)
@@ -698,37 +736,20 @@
     currentSegment.value = ''
   }
   
-  // ==================== 路径绘制 ====================
-  function startDrawing() {
-    if (measureMode.value) clearMeasure()
-    drawingMode.value = true
-    updateClickHandler()
-    showPopupAlert('🖱️ 点击地图添加路径点', 'info')
-  }
-  
-  function finishDrawing() {
-    drawingMode.value = false
-    updateClickHandler()
-    if (userPath.value.length < 2) { showPopupAlert('至少需要2个路径点', 'warning'); return }
-    showPopupAlert(`✅ 路径已保存，共 ${userPath.value.length} 个点`, 'info')
-    drawPathLine()
-  }
-  
+  // ==================== 路径清理 ====================
   function clearUserPath() {
     stopSimulation()
-    drawingMode.value = false
     routeMode.value = false
     routeStart.value = null
     routeEnd.value = null
     routeOptions.value = []
     selectedRoute.value = 0
     userPath.value = []
-    drawingEntities.forEach((e) => viewer.entities.remove(e))
-    drawingEntities = []
-    _drawingMarkers = []
-    vehicleSlots.value.forEach(slot => clearSlotPathVisuals(slot))
+    vehicleSlots.value.forEach(slot => {
+      slot.path = []
+      clearSlotPathVisuals(slot)
+    })
     vehicleProgress.value = 0
-    drawPathLine()
   }
   
   // ==================== OSRM 路径规划 ====================
@@ -757,7 +778,8 @@
     routeOptions.value = []
     selectedRoute.value = 0
     updateClickHandler()
-    vehicleSlots.value.forEach(slot => clearSlotPathVisuals(slot))
+    const slot = vehicleSlots.value.find(s => s.id === activeSlotId.value)
+    if (slot) clearSlotPathVisuals(slot)
     showPopupAlert('🖱️ 点击地图设置起点', 'info')
   }
   
@@ -809,12 +831,11 @@
         const e = viewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(lng, lat, 0),
           billboard: {
-            image: createMarkerIcon('起', '#4CAF50'),
-            width: 40,
-            height: 40,
+            image: createMarkerIcon('#1e3a8a'),
+            width: 64,
+            height: 80,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            eyeOffset: new Cesium.Cartesian3(0, 0, 20),
-            pixelOffset: new Cesium.Cartesian2(0, -10),
           },
         })
         drawingEntities.push(e)
@@ -824,12 +845,11 @@
         const e = viewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(lng, lat, 0),
           billboard: {
-            image: createMarkerIcon('终', '#F44336'),
-            width: 40,
-            height: 40,
+            image: createMarkerIcon('#0f172a'),
+            width: 64,
+            height: 80,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            eyeOffset: new Cesium.Cartesian3(0, 0, 20),
-            pixelOffset: new Cesium.Cartesian2(0, -10),
           },
         })
         drawingEntities.push(e)
@@ -924,48 +944,12 @@
         minimumLevel: 3,
         maximumLevel: 18,
       })
-    } else if (type === 'terrain') {
-      provider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-        subdomains: ['1', '2', '3', '4'],
-        minimumLevel: 3,
-        maximumLevel: 18,
-      })
     }
     if (provider) {
       viewer.imageryLayers.addImageryProvider(provider)
     }
-    // 3D 建筑仅在「地形」模式下加载
-    if (type === 'terrain') {
-      if (!osmBuildings) {
-        Cesium.createOsmBuildingsAsync().then(b => {
-          osmBuildings = b
-          // WGS84 → GCJ-02 纠偏：以北京为中心计算偏移量
-          const wgs = Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 0)
-          const gcj = wgs84ToGCJ02(39.9042, 116.4074)
-          const gcjPos = Cesium.Cartesian3.fromDegrees(gcj.lng, gcj.lat, 0)
-          const offset = Cesium.Cartesian3.subtract(gcjPos, wgs, new Cesium.Cartesian3())
-          b.modelMatrix = Cesium.Matrix4.fromTranslation(offset)
-          viewer.scene.primitives.add(b)
-        }).catch(() => {})
-      }
-    } else {
-      if (osmBuildings) { viewer.scene.primitives.remove(osmBuildings); osmBuildings = null }
-    }
   }
-  
-  // ==================== 2D/3D 切换 ====================
-  function toggleViewMode() {
-    if (!viewer) return
-    if (is3DMode.value) {
-      viewer.scene.morphTo2D(1.0)
-      is3DMode.value = false
-    } else {
-      viewer.scene.morphTo3D(1.0)
-      is3DMode.value = true
-    }
-  }
-  
+
   // ==================== 飞行 ====================
   function flyToBeijing() {
     viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 8000), duration: 1.5 })

@@ -1,20 +1,10 @@
 <template>
   <aside class="sidebar left-sidebar">
     <div class="panel">
-      <h3>🌍 视图切换</h3>
-      <div class="layer-btns">
-        <button :class="{ active: is3DMode }" @click="$emit('toggleViewMode')">
-          {{ is3DMode ? '🌍 3D' : '🗺️ 2D' }}
-        </button>
-      </div>
-    </div>
-
-    <div class="panel">
       <h3>🗺️ 底图切换</h3>
       <div class="layer-btns">
         <button :class="{ active: activeLayer === 'amap' }" @click="$emit('switchBaseLayer', 'amap')">街道</button>
         <button :class="{ active: activeLayer === 'satellite' }" @click="$emit('switchBaseLayer', 'satellite')">卫星</button>
-        <button :class="{ active: activeLayer === 'terrain' }" @click="$emit('switchBaseLayer', 'terrain')">地形</button>
       </div>
     </div>
 
@@ -43,17 +33,11 @@
     <div class="panel">
       <h3>🚗 路径规划</h3>
       <div class="layer-btns">
-        <button v-if="!routeMode && !drawingMode" @click="$emit('startRoutePlanning')" class="btn btn-sm btn-primary">
+        <button v-if="!routeMode" @click="$emit('startRoutePlanning')" class="btn btn-sm btn-primary">
           🛣️ 智能选路
-        </button>
-        <button v-if="!routeMode && !drawingMode" @click="$emit('startDrawing')" class="btn btn-sm">
-          ✏️ 手动绘制
         </button>
         <button v-if="routeMode" @click="$emit('cancelRoutePlanning')" class="btn btn-sm btn-danger">
           ❌ 取消
-        </button>
-        <button v-if="drawingMode" @click="$emit('finishDrawing')" class="btn btn-sm btn-primary">
-          ✅ 完成绘制
         </button>
         <button @click="$emit('clearUserPath')" class="btn btn-sm btn-danger" :disabled="!userPath.length">
           🗑️ 清除
@@ -75,7 +59,6 @@
           ✅ 确认此路线
         </button>
       </div>
-      <div v-if="drawingMode" class="drawing-hint">🖱️ 点击地图添加路径点</div>
       <div v-if="userPath.length" class="sub-controls">
         <div class="path-info">路径点: {{ userPath.length }} 个</div>
         <div class="path-style-box">
@@ -114,6 +97,11 @@
           class="btn btn-primary"
         >⏸ 暂停</button>
         <button
+          v-if="isSimulating && activeSlot && activeSlot.path.length >= 2 && !activeSlot.positionProperty"
+          @click="$emit('startSimulation')"
+          class="btn btn-primary"
+        >🚗 加入模拟</button>
+        <button
           v-if="isPaused"
           @click="$emit('startSimulation')"
           class="btn btn-primary"
@@ -150,10 +138,10 @@
 <script>
 export default {
   emits: [
-    'switchBaseLayer', 'startDrawing', 'finishDrawing', 'clearUserPath',
+    'switchBaseLayer', 'clearUserPath',
     'startSimulation', 'pauseSimulation', 'stopSimulation', 'update:vehicleSpeed',
     'startMeasure', 'clearMeasure',
-    'toggleViewMode', 'startRoutePlanning', 'cancelRoutePlanning', 'selectRoute', 'confirmRoute',
+    'startRoutePlanning', 'cancelRoutePlanning', 'selectRoute', 'confirmRoute',
     'addVehicle', 'removeVehicle', 'switchVehicle',
     'updatePathColor', 'updatePathWidth', 'updatePathOpacity', 'updatePathStyle', 'updatePathOutlineWidth', 'updatePathOutlineOpacity',
   ],
@@ -164,7 +152,6 @@ export default {
   },
   props: {
     activeLayer: String,
-    drawingMode: Boolean,
     routeMode: Boolean,
     routeStart: Object,
     routeEnd: Object,
@@ -178,7 +165,6 @@ export default {
     currentSegment: String,
     measureMode: String,
     measureResult: String,
-    is3DMode: Boolean,
     vehicleSlots: Array,
     activeSlotId: Number,
     vehicleStats: Array,
