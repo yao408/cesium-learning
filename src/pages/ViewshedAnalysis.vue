@@ -329,12 +329,18 @@ async function getHeightAtPosition(lon, lat) {
 }
 
 async function getPickInfo(click) {
-  const ray = viewer.camera.getPickRay(click.position)
-  if (!Cesium.defined(ray)) return null
+  const picked = viewer.scene.pick(click.position)
   let cartesian
-  try { cartesian = viewer.scene.globe.pick(ray, viewer.scene) } catch (e) {}
-  if (!Cesium.defined(cartesian)) {
-    cartesian = viewer.scene.pickPosition(click.position)
+  if (Cesium.defined(picked) && Cesium.defined(picked.position)) {
+    cartesian = picked.position
+  } else {
+    const ray = viewer.camera.getPickRay(click.position)
+    if (Cesium.defined(ray)) {
+      try { cartesian = viewer.scene.globe.pick(ray, viewer.scene) } catch (e) {}
+    }
+    if (!Cesium.defined(cartesian)) {
+      cartesian = viewer.scene.pickPosition(click.position)
+    }
   }
   if (!Cesium.defined(cartesian)) return null
   const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
@@ -654,6 +660,7 @@ onMounted(() => {
       Cesium.CesiumTerrainProvider.fromIonAssetId(1),
     ),
   )
+
   viewer.imageryLayers.removeAll()
   viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
     url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',

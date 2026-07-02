@@ -125,13 +125,6 @@
       </div>
     </div>
 
-    <div class="panel">
-      <h3>📏 测量工具</h3>
-      <button :class="{ active: measureMode === 'distance' }" @click="$emit('startMeasure', 'distance')" class="btn btn-sm">📐 测距</button>
-      <button :class="{ active: measureMode === 'area' }" @click="$emit('startMeasure', 'area')" class="btn btn-sm">📏 测面积</button>
-      <button @click="$emit('clearMeasure')" class="btn btn-sm btn-danger">清除</button>
-      <div v-if="measureResult" class="measure-result">{{ measureResult }}</div>
-    </div>
   </aside>
 </template>
 
@@ -140,7 +133,6 @@ export default {
   emits: [
     'switchBaseLayer', 'clearUserPath',
     'startSimulation', 'pauseSimulation', 'stopSimulation', 'update:vehicleSpeed',
-    'startMeasure', 'clearMeasure',
     'startRoutePlanning', 'cancelRoutePlanning', 'selectRoute', 'confirmRoute',
     'addVehicle', 'removeVehicle', 'switchVehicle',
     'updatePathColor', 'updatePathWidth', 'updatePathOpacity', 'updatePathStyle', 'updatePathOutlineWidth', 'updatePathOutlineOpacity',
@@ -163,8 +155,6 @@ export default {
     vehicleSpeed: Number,
     vehicleProgress: Number,
     currentSegment: String,
-    measureMode: String,
-    measureResult: String,
     vehicleSlots: Array,
     activeSlotId: Number,
     vehicleStats: Array,
@@ -296,15 +286,6 @@ export default {
   background: rgba(231, 76, 60, 0.1);
   border-radius: 3px;
   margin-bottom: 3px;
-}
-.measure-result {
-  margin-top: 6px;
-  padding: 4px 8px;
-  background: #0f3460;
-  border-radius: 4px;
-  font-size: 12px;
-  color: #00ff88;
-  font-weight: 600;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; }

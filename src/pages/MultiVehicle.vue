@@ -29,8 +29,6 @@
           :vehicleSpeed="vehicleSpeed"
           :vehicleProgress="vehicleProgress"
           :currentSegment="currentSegment"
-          :measureMode="measureMode"
-          :measureResult="measureResult"
           :vehicleSlots="vehicleSlots"
           :activeSlotId="activeSlotId"
           @switchBaseLayer="switchBaseLayer"
@@ -39,8 +37,6 @@
           @pauseSimulation="pauseSimulation"
           @stopSimulation="stopSimulation"
           @update:vehicleSpeed="v => vehicleSpeed = v"
-          @startMeasure="startMeasure"
-          @clearMeasure="clearMeasure"
           @startRoutePlanning="startRoutePlanning"
           @cancelRoutePlanning="cancelRoutePlanning"
           @selectRoute="selectRoute"
@@ -78,7 +74,6 @@
       <footer class="status-bar">
         <span>🟢 系统就绪</span>
         <span v-if="isSimulating">🚗 模拟中 | 速度: {{ vehicleSpeed }} km/h</span>
-        <span v-if="measureMode">📏 测量模式: {{ measureMode === 'distance' ? '测距' : '测面积' }}</span>
         <span>© 2026 WebGIS Demo | Cesium 3D</span>
       </footer>
     </div>
@@ -98,8 +93,6 @@
   let viewer = null
   let vehicleEntity = null
   let routeMarkerEntities = []
-  let measureEntities = []
-  let _measureMarkers = []
   let positionProperty = null
   let mouseHandler = null
   let clickHandler = null
@@ -110,7 +103,6 @@
   // ==================== 车辆槽位管理 ====================
   
   const activeLayer = ref('satellite')
-  const measureMode = ref(null)
   const routeMode = ref(false)      // 路径规划模式：选起点→终点→自动获取真实道路
   const routeStart = ref(null)      // 起点 { lat, lng }
   const routeEnd = ref(null)        // 终点 { lat, lng }
@@ -128,7 +120,6 @@
   const mapZoom = ref(13)
   const centerLat = ref(39.9042)
   const centerLng = ref(116.4074)
-  const measureResult = ref('')
   const systemTime = ref('')
   const cameraMode = ref('bird') // 'bird' 俯视
   const cameraLocked = ref(true)  // true=自动跟车，false=手动控制
@@ -771,7 +762,6 @@
   }
   
   function startRoutePlanning() {
-    if (measureMode.value) clearMeasure()
     routeMode.value = true
     routeStart.value = null
     routeEnd.value = null
@@ -877,51 +867,6 @@
       drawPathLine()
       return
     }
-  
-    if (measureMode.value) {
-      const idx = _measureMarkers.length + 1
-      const e = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lng, lat, 0),
-        point: { pixelSize: 10, color: Cesium.Color.fromCssColorString('#e74c3c'), outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
-        label: { text: String(idx), font: '12px sans-serif', pixelOffset: new Cesium.Cartesian2(0, -16), showBackground: true, backgroundColor: Cesium.Color.fromCssColorString('#e74c3c') },
-      })
-      measureEntities.push(e); _measureMarkers.push(e)
-      updateMeasureResult()
-    }
-  }
-  
-  function updateMeasureResult() {
-    if (_measureMarkers.length < 2) { measureResult.value = ''; return }
-    const pts = _measureMarkers.map((m) => {
-      const c = Cesium.Cartographic.fromCartesian(m.position.getValue(Cesium.JulianDate.now()))
-      return { lat: Cesium.Math.toDegrees(c.latitude), lng: Cesium.Math.toDegrees(c.longitude) }
-    })
-    if (measureMode.value === 'distance') {
-      let total = 0
-      for (let i = 1; i < pts.length; i++) total += haversineDistance(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng)
-      measureResult.value = total < 1000 ? `${total.toFixed(1)} 米` : `${(total / 1000).toFixed(2)} 公里`
-    }
-    if (measureMode.value === 'area' && _measureMarkers.length >= 3) {
-      const area = calcPolygonArea(pts)
-      measureResult.value = area < 1000000 ? `${area.toFixed(1)} m²` : `${(area / 1000000).toFixed(2)} km²`
-    }
-  }
-  
-  function startMeasure(type) {
-    if (measureMode.value === type) { clearMeasure(); return }
-    clearMeasure()
-    measureMode.value = type
-    updateClickHandler()
-    measureResult.value = ''
-  }
-  
-  function clearMeasure() {
-    measureMode.value = null
-    updateClickHandler()
-    measureResult.value = ''
-    measureEntities.forEach((e) => viewer.entities.remove(e))
-    measureEntities = []
-    _measureMarkers = []
   }
   
   // ==================== 底图切换 ====================
@@ -962,7 +907,7 @@
   function updateClickHandler() {
     if (!clickHandler) return
     clickHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK)
-    if (drawingMode.value || measureMode.value || routeMode.value) {
+    if (drawingMode.value || routeMode.value) {
       clickHandler.setInputAction((click) => { handleMapClick(click.position) }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
     }
   }

@@ -6,6 +6,7 @@ const routes = [
   { path: '/flood', component: () => import('../pages/FloodSim.vue') },
   { path: '/viewshed', component: () => import('../pages/ViewshedAnalysis.vue') },
   { path: '/data-import', component: () => import('../pages/DataImport.vue') },
+  { path: '/earthquake', component: () => import('../pages/EarthquakeHeatmap.vue') },
 ]
 
 export default createRouter({

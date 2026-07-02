@@ -17,12 +17,6 @@
       </ul>
     </div>
 
-    <div class="panel legend">
-      <h3>🎨 图例</h3>
-      <div><span class="dot blue"></span> 规划路径</div>
-      <div><span class="dot green"></span> 传感器 FOV</div>
-      <div><span class="dot red"></span> 电子围栏</div>
-    </div>
   </aside>
 </template>
 

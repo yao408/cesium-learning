@@ -36,6 +36,9 @@
         <button @click="toggleSourcePick" class="preset-btn" :class="{ active: sourceMode }" style="width:100%">
           {{ sourceMode ? '🖱️ 点击地图设置水源...' : '🖱️ 点击地图设水源点' }}
         </button>
+        <button v-if="sourcePoint" @click="clearSource" class="preset-btn" style="width:100%; margin-top:6px; color:#f87171">
+          🗑️ 清除水源点，重新选择
+        </button>
         <p v-if="sourcePoint" class="hint" style="margin-top:4px">
           水源: {{ sourcePoint.lon.toFixed(4) }}, {{ sourcePoint.lat.toFixed(4) }}
         </p>
@@ -117,6 +120,24 @@ function toggleSourcePick() {
       scheduleFloodCompute()
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
   } else if (sourcePickHandler) {
+    sourcePickHandler.destroy()
+    sourcePickHandler = null
+  }
+}
+
+function clearSource() {
+  if (gpuSim) {
+    gpuSim.destroy()
+    gpuSim = null
+  }
+  if (sourceMarker) {
+    viewer.entities.remove(sourceMarker)
+    sourceMarker = null
+  }
+  sourcePoint.value = null
+  currentLocation.value = '门头沟山区'
+  sourceMode.value = false
+  if (sourcePickHandler) {
     sourcePickHandler.destroy()
     sourcePickHandler = null
   }

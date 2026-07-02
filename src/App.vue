@@ -5,6 +5,7 @@
       <router-link to="/flood" class="nav-link">🌊 洪水模拟</router-link>
       <router-link to="/viewshed" class="nav-link">👁️ 通视分析</router-link>
       <router-link to="/data-import" class="nav-link">📦 数据加载</router-link>
+      <router-link to="/earthquake" class="nav-link">🌍 地震热力</router-link>
     </nav>
     <div class="router-view"><router-view /></div>
   </div>
@@ -18,8 +19,10 @@
 #app { display: flex; flex-direction: column; height: 100vh; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #1a1a2e; color: #e0e0e0; }
 .top-nav {
   display: flex; gap: 4px; padding: 10px 20px;
-  background: linear-gradient(135deg, #16213e, #0f3460);
-  border-bottom: 1px solid #0f3460; flex-shrink: 0; z-index: 1000;
+  background: rgba(22, 33, 62, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; z-index: 1000;
 }
 .nav-link {
   padding: 8px 20px; border-radius: 6px; color: #aaa; text-decoration: none;
