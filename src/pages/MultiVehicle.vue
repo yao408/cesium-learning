@@ -1,19 +1,5 @@
 <template>
     <div class="multi-vehicle-page">
-      <header class="toolbar">
-        <div class="toolbar-left">
-          <h1>🌍 Cesium 3D 数字孪生平台</h1>
-          <span class="badge">Cesium + Vue3</span>
-        </div>
-        <div class="toolbar-right">
-          <button v-if="isSimulating" @click="toggleCameraLock" class="btn btn-sm">
-            {{ cameraLocked ? '🔓 解锁' : '🔒 锁定' }}
-          </button>
-          <button @click="flyToBeijing" class="btn btn-sm">📍 北京</button>
-          <button @click="flyToShanghai" class="btn btn-sm">📍 上海</button>
-          <span class="time">{{ systemTime }}</span>
-        </div>
-      </header>
   
       <div class="main-container">
         <ControlPanel
@@ -50,60 +36,49 @@
           @updatePathStyle="updatePathStyle"
           @updatePathOutlineWidth="updatePathOutlineWidth"
           @updatePathOutlineOpacity="updatePathOutlineOpacity"
+          :mouseLat="mouseLat"
+          :mouseLng="mouseLng"
         />
   
         <div id="map">
-          <div ref="cesiumContainer" class="cesium-container"></div>
-          <MapOverlay
-            :showAlert="showAlert"
-            :alertType="alertType"
-            :alertMessage="alertMessage"
-          />
+          <div class="map-area"></div>
+          <div v-if="showInfoPanel" class="info-panel">
+            <p>WGS84 {{ mouseLng.toFixed(5) }}, {{ mouseLat.toFixed(5) }}</p>
+          </div>
         </div>
-  
-        <InfoPanel
-          :mouseLat="mouseLat"
-          :mouseLng="mouseLng"
-          :gcj02Display="gcj02Display"
-          :mapZoom="mapZoom"
-          :centerLat="centerLat"
-          :centerLng="centerLng"
-        />
       </div>
-  
-      <footer class="status-bar">
-        <span>🟢 系统就绪</span>
-        <span v-if="isSimulating">🚗 模拟中 | 速度: {{ vehicleSpeed }} km/h</span>
-        <span>© 2026 WebGIS Demo | Cesium 3D</span>
-      </footer>
     </div>
-  </template>
-  
-  <script setup>
+</template>
+
+<script setup>
   import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
   import * as Cesium from 'cesium'
   import ControlPanel from '../components/ControlPanel.vue'
-  import InfoPanel from '../components/InfoPanel.vue'
-  import MapOverlay from '../components/MapOverlay.vue'
+import MapOverlay from '../components/MapOverlay.vue'
   import { wgs84ToGCJ02, destinationPoint, calcBearing, calcHeading, haversineDistance, calcPolygonArea } from '../utils/geo.js'
+import { useScenarioStore } from '../stores/scenarioStore.js'
+import { useViewerStore } from '../stores/viewerStore.js'
+
+  const store = useScenarioStore()
+  const viewerStore = useViewerStore()
   
-  Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN
-  
-  const cesiumContainer = ref(null)
   let viewer = null
   let vehicleEntity = null
   let routeMarkerEntities = []
   let positionProperty = null
   let mouseHandler = null
   let clickHandler = null
+  let cameraMoveEndListener = null
   let drawHandler = null
-  let clockTimer = null
+  let drawingEntities = []
+  let _drawingMarkers = []
   let alertTimer = null
   
   // ==================== 车辆槽位管理 ====================
   
   const activeLayer = ref('satellite')
   const routeMode = ref(false)      // 路径规划模式：选起点→终点→自动获取真实道路
+  const drawingMode = ref(false)    // 手动绘制路径模式
   const routeStart = ref(null)      // 起点 { lat, lng }
   const routeEnd = ref(null)        // 终点 { lat, lng }
   const routeOptions = ref([])      // OSRM返回的多条路线
@@ -120,7 +95,6 @@
   const mapZoom = ref(13)
   const centerLat = ref(39.9042)
   const centerLng = ref(116.4074)
-  const systemTime = ref('')
   const cameraMode = ref('bird') // 'bird' 俯视
   const cameraLocked = ref(true)  // true=自动跟车，false=手动控制
   const showAlert = ref(false)
@@ -236,33 +210,22 @@
   
   // ==================== 初始化 ====================
   onMounted(() => {
-    viewer = new Cesium.Viewer(cesiumContainer.value, {
-      terrain: Cesium.Terrain.fromWorldTerrain(),
-      animation: false, timeline: false, baseLayerPicker: false,
-      fullscreenButton: false, geocoder: false, homeButton: false,
-      sceneModePicker: false, navigationHelpButton: false,
-      infoBox: false, selectionIndicator: false,
-      sceneMode: Cesium.SceneMode.SCENE3D,
-    })
-    viewer.scene.globe.enableLighting = true
+    viewer = viewerStore.viewer
+    if (!viewer) return
+
+    viewer.scene.globe.enableLighting = false
     viewer.scene.globe.depthTestAgainstTerrain = true
     viewer.scene.globe.maximumScreenSpaceError = 1.5
     viewer.scene.globe.showGroundAtmosphere = true
     viewer.shadows = true
     viewer.scene.msaaSamples = 4
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 50
-    viewer.imageryLayers.removeAll()
-    viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-      url: 'https://webst0{s}.is.autonavi.com/appmaptile?style=6&x={x}&y={y}&z={z}',
-      subdomains: ['1', '2', '3', '4'],
-      minimumLevel: 3,
-      maximumLevel: 18,
-    }))
     viewer.scene.renderError.addEventListener(() => {
       console.warn('Cesium render error - check corridor/groundPrimitive entities')
     })
-  
-    // 倾斜视角：右键拖动 / 触控板双指 / Ctrl+左键拖动
+
+    viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
+
     viewer.scene.screenSpaceCameraController.tiltEventTypes = [
       Cesium.CameraEventType.RIGHT_DRAG,
       Cesium.CameraEventType.PINCH,
@@ -277,10 +240,13 @@
     }, { passive: false })
     viewer.clock.shouldAnimate = false
     viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP
-  
+
     mouseHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
     mouseHandler.setInputAction((movement) => {
-      const cartesian = viewer.scene.pickPosition(movement.endPosition)
+      let cartesian = viewer.scene.pickPosition(movement.endPosition)
+      if (!Cesium.defined(cartesian)) {
+        cartesian = viewer.camera.pickEllipsoid(movement.endPosition, viewer.scene.globe.ellipsoid)
+      }
       if (Cesium.defined(cartesian)) {
         const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
         mouseLat.value = Cesium.Math.toDegrees(cartographic.latitude)
@@ -289,14 +255,16 @@
       }
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
   
-    viewer.camera.moveEnd.addEventListener(() => {
+    cameraMoveEndListener = () => {
+      if (!viewer) return
       const cartographic = viewer.camera.positionCartographic
       if (Cesium.defined(cartographic)) {
         centerLat.value = Cesium.Math.toDegrees(cartographic.latitude)
         centerLng.value = Cesium.Math.toDegrees(cartographic.longitude)
         mapZoom.value = Math.round(viewer.camera.computeViewRectangle() ? 13 : 10)
       }
-    })
+    }
+    viewer.camera.moveEnd.addEventListener(cameraMoveEndListener)
   
     viewer.scene.postRender.addEventListener(onPostRender)
   
@@ -308,15 +276,17 @@
     drawPathLine()
     initDefaultSlot()
     clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
-    clockTimer = setInterval(() => { systemTime.value = new Date().toLocaleTimeString('zh-CN') }, 1000)
-    flyToBeijing()
   })
   
   onBeforeUnmount(() => {
     stopSimulation()
-    if (clockTimer) clearInterval(clockTimer)
     if (mouseHandler) mouseHandler.destroy()
-    if (viewer) viewer.destroy()
+    if (viewer) {
+      viewer.scene.postRender.removeEventListener(onPostRender)
+      if (cameraMoveEndListener) viewer.camera.moveEnd.removeEventListener(cameraMoveEndListener)
+      viewer.entities.removeAll()
+    }
+    viewer = null
   })
   
   function getVehicleCameraDest(lng, lat, height, heading) {
@@ -494,7 +464,7 @@
     const totalDist = calcTotalDistance(path)
     const REF_TIME = 120
     prop.setInterpolationOptions({ interpolationDegree: 1, interpolationAlgorithm: Cesium.LinearApproximation })
-    // 转 GCJ-02 与高德底图对齐
+    // 转 GCJ-02（高德路径规划 API 需要）
     const gcjPath = path.map(([lat, lng]) => wgs84ToGCJ02(lat, lng))
     const carts = gcjPath.map(({ lat, lng }) => Cesium.Cartographic.fromDegrees(lng, lat))
     let heights
@@ -795,6 +765,7 @@
     const route = routeOptions.value[selectedRoute.value]
     if (!route) return
     userPath.value = route.path
+    store.setVehiclePaths(route.path)
     routeMode.value = false
     routeStart.value = null
     routeEnd.value = null
@@ -895,14 +866,6 @@
     }
   }
 
-  // ==================== 飞行 ====================
-  function flyToBeijing() {
-    viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(116.4074, 39.9042, 8000), duration: 1.5 })
-  }
-  function flyToShanghai() {
-    viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(121.4737, 31.2304, 8000), duration: 2 })
-  }
-  
   // 动态注册/注销点击事件
   function updateClickHandler() {
     if (!clickHandler) return
@@ -915,14 +878,8 @@
   
   <style scoped>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  .multi-vehicle-page { display: flex; flex-direction: column; height: 100%; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #1a1a2e; color: #e0e0e0; }
-  .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 8px 20px; background: linear-gradient(135deg, #16213e, #0f3460); border-bottom: 1px solid #0f3460; z-index: 1000; flex-shrink: 0; }
-  .toolbar-left { display: flex; align-items: center; gap: 12px; }
-  .toolbar-left h1 { font-size: 18px; font-weight: 600; color: #e94560; }
-  .badge { background: #e94560; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; }
-  .toolbar-right { display: flex; align-items: center; gap: 10px; }
-  .time { font-size: 13px; color: #888; font-variant-numeric: tabular-nums; }
-  .main-container { display: flex; flex: 1; overflow: hidden; }
+  .multi-vehicle-page { display: flex; flex-direction: column; height: 100%; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: transparent; color: #2a3d40; }
+  .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
   #map { flex: 1; min-width: 0; z-index: 1; position: relative; }
   .cesium-container { width: 100%; height: 100%; }
   .cesium-container :deep(.cesium-viewer),
@@ -932,8 +889,7 @@
     height: 100% !important;
     touch-action: none;
   }
-  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 4px 20px; background: #0f3460; font-size: 11px; color: #888; flex-shrink: 0; border-top: 1px solid #16213e; }
-  .btn { padding: 6px 14px; border: 1px solid #0f3460; border-radius: 4px; background: #16213e; color: #e0e0e0; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+  .btn { padding: 6px 14px; border: 1px solid rgba(45, 138, 78, 0.2); border-radius: 4px; background: rgba(45, 138, 78, 0.08); color: #2a3d40; cursor: pointer; font-size: 12px; transition: all 0.2s; }
   .btn:hover { border-color: #e94560; }
   .btn-sm { padding: 4px 10px; font-size: 11px; }
   @media (max-width: 700px) { .main-container { flex-direction: column; } #map { height: 400px; flex: none; } }

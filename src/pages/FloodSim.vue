@@ -1,61 +1,46 @@
 <template>
   <div class="flood-page">
-    <aside class="flood-panel">
-      <div class="panel">
-        <h3>🌊 洪水淹没模拟</h3>
+    <aside class="flood-panel" :class="{ collapsed }">
+      <div class="panel-header">
+        <h3>⛰️ 山洪淹没分析</h3>
         <p class="hint">拖动滑块调整水位高度，观察地形淹没情况</p>
       </div>
 
-      <div class="panel">
-        <div class="control-group">
+      <div v-show="!collapsed" class="panel-body">
+        <div class="panel">
           <label>水位高度</label>
           <div class="slider-row">
             <input type="range" v-model.number="waterLevel" :min="0" :max="2000" step="10" />
             <span class="value">{{ waterLevel }} m</span>
           </div>
         </div>
-      </div>
 
-      <div class="panel">
-        <span class="label">快速设置</span>
-        <div class="preset-btns">
-          <button v-for="h in [0, 200, 400, 600, 800, 1200, 2000]" :key="h" @click="waterLevel = h" class="preset-btn" :class="{ active: waterLevel === h }">{{ h }}m</button>
+        <div class="panel">
+          <span class="label">快速设置</span>
+          <div class="preset-btns">
+            <button v-for="h in [0, 200, 400, 600, 800, 1200, 2000]" :key="h" @click="waterLevel = h" class="preset-btn" :class="{ active: waterLevel === h }">{{ h }}m</button>
+          </div>
         </div>
-      </div>
 
-      <div class="panel">
-        <span class="label">视角控制</span>
-        <button @click="setView('top')" class="preset-btn" :class="{ active: currentView === 'top' }">🔝 俯视</button>
-        <button @click="setView('side')" class="preset-btn" :class="{ active: currentView === 'side' }">👀 侧面</button>
-        <button @click="setView('angle')" class="preset-btn" :class="{ active: currentView === 'angle' }">📐 斜45°</button>
-        <p class="hint" style="margin-top:6px">💡 按住 Ctrl + 拖拽鼠标 = 旋转视角</p>
-      </div>
-
-      <div class="panel">
-        <span class="label">💧 水源点</span>
-        <button @click="toggleSourcePick" class="preset-btn" :class="{ active: sourceMode }" style="width:100%">
-          {{ sourceMode ? '🖱️ 点击地图设置水源...' : '🖱️ 点击地图设水源点' }}
-        </button>
-        <button v-if="sourcePoint" @click="clearSource" class="preset-btn" style="width:100%; margin-top:6px; color:#f87171">
-          🗑️ 清除水源点，重新选择
-        </button>
-        <p v-if="sourcePoint" class="hint" style="margin-top:4px">
-          水源: {{ sourcePoint.lon.toFixed(4) }}, {{ sourcePoint.lat.toFixed(4) }}
-        </p>
-      </div>
-
-      <div class="panel">
-        <div class="info">
-          <p>📍 {{ currentLocation }}</p>
-          <p>⛰️ 地形已加载</p>
-          <p>💡 点击「侧面」看山谷被淹</p>
+        <div class="panel">
+          <span class="label">💧 水源点</span>
+          <button @click="toggleSourcePick" class="preset-btn" :class="{ active: sourceMode }" style="width:100%">
+            {{ sourceMode ? '🖱️ 点击地图设置水源...' : '🖱️ 点击地图设水源点' }}
+          </button>
+          <button v-if="sourcePoint" @click="clearSource" class="preset-btn" style="width:100%; margin-top:6px; color:#f87171">
+            🗑️ 清除水源点，重新选择
+          </button>
+          <p v-if="sourcePoint" class="hint" style="margin-top:4px">
+            水源: {{ sourcePoint.lon.toFixed(4) }}, {{ sourcePoint.lat.toFixed(4) }}
+          </p>
         </div>
       </div>
     </aside>
+    <button class="collapse-toggle" @click="collapsed = !collapsed" :title="collapsed ? '展开面板' : '收起面板'">
+      {{ collapsed ? '▶' : '◀' }}
+    </button>
 
-    <div class="map-area">
-      <div ref="cesiumContainer" class="cesium-container"></div>
-    </div>
+    <div class="map-area"></div>
   </div>
 </template>
 
@@ -63,13 +48,14 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import * as Cesium from 'cesium'
 import { GPUFloodSim } from '../utils/gpuFloodSim.js'
+import { useScenarioStore } from '../stores/scenarioStore.js'
+import { useViewerStore } from '../stores/viewerStore.js'
 
-Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN
+const store = useScenarioStore()
+const viewerStore = useViewerStore()
 
-const cesiumContainer = ref(null)
+const collapsed = ref(false)
 const waterLevel = ref(100)
-const currentView = ref('top')
-const currentLocation = ref('门头沟山区')
 const sourceMode = ref(false)
 const sourcePoint = ref(null)
 
@@ -81,6 +67,7 @@ let gpuSim = null
 function updateWater() {
   if (!gpuSim || !sourcePoint.value) return
   gpuSim.setSourcePoint(sourcePoint.value.lon, sourcePoint.value.lat, waterLevel.value)
+  store.setFloodLevel(waterLevel.value, sourcePoint.value)
 }
 
 watch(waterLevel, updateWater)
@@ -97,7 +84,7 @@ function toggleSourcePick() {
       const lat = Cesium.Math.toDegrees(cartographic.latitude)
       const h = cartographic.height
       sourcePoint.value = { lon, lat }
-      currentLocation.value = `经度${lon.toFixed(4)} 纬度${lat.toFixed(4)}`
+      store.setFloodLevel(waterLevel.value, { lon, lat })
       sourceMode.value = false
       sourcePickHandler.destroy()
       sourcePickHandler = null
@@ -135,7 +122,6 @@ function clearSource() {
     sourceMarker = null
   }
   sourcePoint.value = null
-  currentLocation.value = '门头沟山区'
   sourceMode.value = false
   if (sourcePickHandler) {
     sourcePickHandler.destroy()
@@ -158,108 +144,138 @@ function scheduleFloodCompute() {
   initGPUSim()
 }
 
-function setView(mode) {
-  currentView.value = mode
-  const center = sourcePoint.value || { lon: 115.98, lat: 40.03 }
-  const views = {
-    top:   { destination: Cesium.Cartesian3.fromDegrees(center.lon, center.lat, 15000), orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 } },
-    side:  { destination: Cesium.Cartesian3.fromDegrees(center.lon - 0.02, center.lat, 10000), orientation: { heading: Cesium.Math.toRadians(90), pitch: Cesium.Math.toRadians(-30), roll: 0 } },
-    angle: { destination: Cesium.Cartesian3.fromDegrees(center.lon - 0.015, center.lat - 0.01, 12000), orientation: { heading: Cesium.Math.toRadians(45), pitch: Cesium.Math.toRadians(-45), roll: 0 } },
-  }
-  viewer.camera.flyTo(views[mode])
-}
-
 onMounted(() => {
-  // 1. 创建 Viewer
-  viewer = new Cesium.Viewer(cesiumContainer.value, {
-    animation: false,
-    timeline: false,
-    baseLayerPicker: false,
-    fullscreenButton: false,
-    geocoder: false,
-    homeButton: false,
-    sceneModePicker: false,
-    navigationHelpButton: false,
-    infoBox: false,
-    selectionIndicator: false,
-  })
+  viewer = viewerStore.viewer
+  if (!viewer) return
 
-  // 2. 设置地形
-  viewer.scene.globe.depthTestAgainstTerrain = true
   viewer.scene.setTerrain(
     new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1))
   )
 
-  // 3. 设置初始视角
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(115.98, 40.03, 2000),
-    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
+    destination: Cesium.Cartesian3.fromDegrees(115.98, 40.03, 15000),
+    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-90), roll: 0 },
   })
 })
 
 onBeforeUnmount(() => {
   if (gpuSim) gpuSim.destroy()
-  if (sourceMarker) viewer.entities.remove(sourceMarker)
-  if (sourcePickHandler) sourcePickHandler.destroy()
-  if (viewer) viewer.destroy()
+  if (viewer) {
+    if (sourceMarker) viewer.entities.remove(sourceMarker)
+    if (sourcePickHandler) sourcePickHandler.destroy()
+  }
+  viewer = null
 })
 </script>
 
 <style scoped>
 .flood-page {
-  display: flex;
+  position: relative;
+  width: 100%;
   height: 100%;
   font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: transparent;
+  color: #2a3d40;
+  overflow: hidden;
 }
 
 .flood-panel {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
   width: 260px;
-  overflow-y: auto;
-  padding: 10px;
-  background: #16213e;
-  border-right: 1px solid #0f3460;
-  flex-shrink: 0;
+  z-index: 100;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(254, 252, 245, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 138, 78, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.flood-panel.collapsed {
+  left: -260px;
+  box-shadow: none;
+}
+.flood-panel.collapsed ~ .collapse-toggle {
+  left: 12px;
+}
+.flood-panel::-webkit-scrollbar { width: 4px; }
+.flood-panel::-webkit-scrollbar-thumb { background: rgba(45, 138, 78, 0.2); border-radius: 2px; }
+
+.panel-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
+  flex-shrink: 0;
+}
+.panel-header h3 {
+  font-size: 14px;
+  color: #2d8a4e;
+  margin: 0 0 2px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.panel-header .hint {
+  font-size: 10px;
+  color: #8b7e6a;
+  margin: 1px 0;
+}
+
+.panel-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .panel {
-  background: #1a1a2e;
+  background: rgba(255, 255, 255, 0.5);
   border-radius: 8px;
-  padding: 12px;
-  border: 1px solid #0f3460;
+  padding: 10px;
+  margin: 10px 12px;
+  border: 1px solid rgba(45, 138, 78, 0.08);
+}
+.panel:first-of-type {
+  margin-top: 14px;
+}
+.panel:last-of-type {
+  margin-bottom: 14px;
 }
 
 .panel h3 {
   font-size: 13px;
-  color: #e94560;
+  color: #2d8a4e;
   margin-bottom: 4px;
   padding-bottom: 6px;
-  border-bottom: 1px solid #0f3460;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
 }
 
 .hint {
   font-size: 11px;
-  color: #888;
+  color: #8b7e6a;
   margin: 0;
 }
 
 .control-group {
   margin-bottom: 12px;
 }
-
 .control-group:last-child {
   margin-bottom: 0;
 }
 
 .control-group label {
   font-size: 12px;
-  color: #aaa;
+  color: #6b5e4a;
   display: block;
   margin-bottom: 4px;
+  font-weight: 500;
 }
 
 .slider-row {
@@ -267,16 +283,15 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
 }
-
 .slider-row input[type="range"] {
   flex: 1;
-  accent-color: #e94560;
+  accent-color: #f59e0b;
   height: 4px;
 }
 
 .value {
   font-size: 12px;
-  color: #e94560;
+  color: #f59e0b;
   font-weight: 600;
   min-width: 50px;
   text-align: right;
@@ -291,42 +306,75 @@ onBeforeUnmount(() => {
 
 .preset-btn {
   padding: 4px 10px;
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  background: #16213e;
-  color: #e0e0e0;
+  border: 1px solid rgba(45, 138, 78, 0.2);
+  border-radius: 6px;
+  background: rgba(45, 138, 78, 0.06);
+  color: #3d3929;
   cursor: pointer;
   font-size: 11px;
   transition: all 0.2s;
+  font-weight: 500;
 }
-
 .preset-btn:hover {
-  border-color: #e94560;
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
 }
-
 .preset-btn.active {
-  background: #e94560;
-  border-color: #e94560;
+  background: #2d8a4e;
+  border-color: #2d8a4e;
   color: #fff;
 }
 
 .label {
   font-size: 11px;
-  color: #888;
+  color: #8b7e6a;
   display: block;
   margin-bottom: 4px;
+  font-weight: 500;
 }
 
 .info p {
   font-size: 11px;
-  color: #888;
+  color: #8b7e6a;
   margin: 2px 0;
 }
 
+.collapse-toggle {
+  position: absolute;
+  left: 272px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 110;
+  width: 22px;
+  height: 48px;
+  border: none;
+  background: rgba(254, 252, 245, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: #2d8a4e;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+}
+.collapse-toggle:hover {
+  background: rgba(254, 252, 245, 0.95);
+  color: #1a6b35;
+}
+.flood-panel.collapsed ~ .collapse-toggle {
+  left: 12px;
+}
+
 .map-area {
-  flex: 1;
-  min-width: 0;
-  position: relative;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
 .cesium-container {

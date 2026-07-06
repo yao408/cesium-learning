@@ -1,8 +1,12 @@
 <template>
-  <aside class="sidebar left-sidebar">
+  <aside class="sidebar left-sidebar" :class="{ collapsed }">
+    <div class="panel-header">
+      <h3>🚑 应急物资调度</h3>
+    </div>
+    <div v-show="!collapsed" class="panel-body">
     <div class="panel">
       <h3>🗺️ 底图切换</h3>
-      <div class="layer-btns">
+      <div class="btn-group">
         <button :class="{ active: activeLayer === 'amap' }" @click="$emit('switchBaseLayer', 'amap')">街道</button>
         <button :class="{ active: activeLayer === 'satellite' }" @click="$emit('switchBaseLayer', 'satellite')">卫星</button>
       </div>
@@ -125,7 +129,15 @@
       </div>
     </div>
 
+  </div>
+    <div class="coord-line" v-show="!collapsed">
+      <span class="coord-label">WGS84</span>
+      <span class="coord-value">{{ mouseLat.toFixed(6) }}, {{ mouseLng.toFixed(6) }}</span>
+    </div>
   </aside>
+  <button class="collapse-toggle" @click="collapsed = !collapsed" :title="collapsed ? '展开面板' : '收起面板'">
+    {{ collapsed ? '▶' : '◀' }}
+  </button>
 </template>
 
 <script>
@@ -142,6 +154,9 @@ export default {
       return (this.vehicleSlots || []).find(s => s.id === this.activeSlotId) || null
     },
   },
+  data() {
+    return { collapsed: false }
+  },
   props: {
     activeLayer: String,
     routeMode: Boolean,
@@ -155,6 +170,8 @@ export default {
     vehicleSpeed: Number,
     vehicleProgress: Number,
     currentSegment: String,
+    mouseLat: Number,
+    mouseLng: Number,
     vehicleSlots: Array,
     activeSlotId: Number,
     vehicleStats: Array,
@@ -164,117 +181,184 @@ export default {
 
 <style scoped>
 .sidebar {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
   width: 260px;
-  overflow-y: auto;
-  padding: 10px;
-  background: #16213e;
-  border-right: 1px solid #0f3460;
-  flex-shrink: 0;
+  z-index: 100;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(254, 252, 245, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 138, 78, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sidebar.collapsed {
+  left: -260px;
+  box-shadow: none;
+}
+.sidebar.collapsed ~ .collapse-toggle {
+  left: 12px;
 }
 .sidebar::-webkit-scrollbar { width: 4px; }
-.sidebar::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 2px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(45, 138, 78, 0.2); border-radius: 2px; }
+
+.panel-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
+  flex-shrink: 0;
+}
+.panel-header h3 {
+  font-size: 14px;
+  color: #2d8a4e;
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.panel-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+}
 .panel {
-  background: #1a1a2e;
+  background: rgba(255, 255, 255, 0.5);
   border-radius: 8px;
-  padding: 12px;
-  border: 1px solid #0f3460;
+  padding: 10px;
+  border: 1px solid rgba(45, 138, 78, 0.08);
 }
 .panel h3 {
-  font-size: 13px;
-  color: #e94560;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #0f3460;
+  font-size: 12px;
+  color: #2d8a4e;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
 }
 .layer-btns { display: flex; gap: 4px; }
+.btn-group {
+  display: flex; gap: 4px;
+}
+.btn-group button {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-radius: 6px;
+  background: rgba(45, 138, 78, 0.06);
+  color: #6b5e4a;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+.btn-group button:hover {
+  background: rgba(245, 158, 11, 0.08);
+  color: #3d3929;
+  transform: translateY(-1px);
+}
+.btn-group button.active {
+  background: #2d8a4e;
+  color: #fff;
+  border-color: #2d8a4e;
+  box-shadow: 0 2px 12px rgba(45, 138, 78, 0.35);
+}
 .layer-btns button {
   flex: 1;
   padding: 6px 8px;
   font-size: 12px;
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  background: #16213e;
-  color: #888;
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-radius: 6px;
+  background: rgba(45, 138, 78, 0.06);
+  color: #6b5e4a;
   cursor: pointer;
   transition: all 0.2s;
 }
-.layer-btns button:hover { border-color: #e94560; color: #e0e0e0; }
-.layer-btns button.active { background: #e94560; color: #fff; border-color: #e94560; }
+.layer-btns button:hover { border-color: #f59e0b; color: #3d3929; }
+.layer-btns button.active { background: #2d8a4e; color: #fff; border-color: #2d8a4e; }
 .btn {
   padding: 6px 14px;
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  background: #16213e;
-  color: #e0e0e0;
+  border: 1px solid rgba(45, 138, 78, 0.2);
+  border-radius: 6px;
+  background: rgba(45, 138, 78, 0.06);
+  color: #3d3929;
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
+  font-weight: 500;
 }
-.btn:hover { border-color: #e94560; }
-.btn-primary { background: #e94560; border-color: #e94560; }
-.btn-primary:hover { background: #c73a52; }
+.btn:hover { border-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
+.btn-primary { background: #2d8a4e; border-color: #2d8a4e; color: #fff; }
+.btn-primary:hover { background: #1a6b35; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 .btn-danger { color: #e74c3c; }
 .btn-danger:hover { background: #e74c3c; color: #fff; border-color: #e74c3c; }
-.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 4px 0; }
-.toggle input[type='checkbox'] { accent-color: #e94560; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; padding: 4px 0; color: #5a4e3c; }
+.toggle input[type='checkbox'] { accent-color: #2d8a4e; }
 .sub-controls {
   margin-top: 8px;
   padding: 8px;
-  background: #0f3460;
+  background: rgba(45, 138, 78, 0.06);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
+  border: 1px solid rgba(45, 138, 78, 0.08);
 }
-.sub-controls input[type='range'] { width: 100%; accent-color: #e94560; }
+.sub-controls input[type='range'] { width: 100%; accent-color: #f59e0b; }
 .drawing-hint {
   font-size: 12px;
-  color: #00ff88;
+  color: #2d8a4e;
   text-align: center;
   padding: 6px;
-  background: rgba(0,255,136,0.08);
+  background: rgba(45, 138, 78, 0.08);
   border-radius: 4px;
   margin: 6px 0;
   animation: pulse 1.2s infinite;
 }
-.path-info { font-size: 12px; color: #3498db; text-align: center; margin-bottom: 4px; font-weight: 600; }
+.path-info { font-size: 12px; color: #2d8a4e; text-align: center; margin-bottom: 4px; font-weight: 600; }
 .path-style-box {
-  background: #16213e;
+  background: rgba(255, 255, 255, 0.4);
   border-radius: 6px;
   padding: 8px;
   margin-bottom: 4px;
-  border: 1px solid #0f3460;
+  border: 1px solid rgba(45, 138, 78, 0.08);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.path-style-box label { font-size: 11px; color: #aaa; display: flex; align-items: center; gap: 6px; }
-.path-style-box input[type='range'] { flex: 1; accent-color: #e94560; }
-.path-style-box .color-picker { width: 28px; height: 22px; border: 1px solid #0f3460; border-radius: 3px; cursor: pointer; background: transparent; padding: 0; }
-.path-style-title { font-size: 11px; color: #e94560; font-weight: 600; margin-bottom: 2px; }
+.path-style-box label { font-size: 11px; color: #6b5e4a; display: flex; align-items: center; gap: 6px; }
+.path-style-box input[type='range'] { flex: 1; accent-color: #f59e0b; }
+.path-style-box .color-picker { width: 28px; height: 22px; border: 1px solid rgba(45, 138, 78, 0.2); border-radius: 3px; cursor: pointer; background: transparent; padding: 0; }
+.path-style-title { font-size: 11px; color: #2d8a4e; font-weight: 600; margin-bottom: 2px; }
 .style-toggle { display: flex; gap: 4px; }
 .style-toggle button {
   flex: 1;
   padding: 3px 8px;
   font-size: 11px;
-  border: 1px solid #0f3460;
-  border-radius: 3px;
-  background: #16213e;
-  color: #888;
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-radius: 4px;
+  background: rgba(45, 138, 78, 0.06);
+  color: #6b5e4a;
   cursor: pointer;
   transition: all 0.2s;
 }
-.style-toggle button:hover { border-color: #e94560; color: #e0e0e0; }
-.style-toggle button.active { background: #e94560; color: #fff; border-color: #e94560; }
-.progress-bar { width: 100%; height: 6px; background: #16213e; border-radius: 3px; overflow: hidden; }
+.style-toggle button:hover { border-color: #f59e0b; color: #3d3929; }
+.style-toggle button.active { background: #2d8a4e; color: #fff; border-color: #2d8a4e; }
+.progress-bar { width: 100%; height: 6px; background: rgba(45, 138, 78, 0.1); border-radius: 3px; overflow: hidden; }
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #e94560, #00ff88);
+  background: linear-gradient(90deg, #2d8a4e, #f59e0b);
   border-radius: 3px;
   transition: width 0.1s linear;
 }
@@ -283,7 +367,7 @@ export default {
   font-size: 11px;
   color: #e74c3c;
   padding: 3px 6px;
-  background: rgba(231, 76, 60, 0.1);
+  background: rgba(231, 76, 60, 0.08);
   border-radius: 3px;
   margin-bottom: 3px;
 }
@@ -294,41 +378,95 @@ export default {
 .route-list {
   margin-top: 8px;
   padding: 8px;
-  background: #0f3460;
+  background: rgba(45, 138, 78, 0.06);
   border-radius: 6px;
+  border: 1px solid rgba(45, 138, 78, 0.08);
 }
 .route-label {
   font-size: 12px;
-  color: #00ff88;
+  color: #2d8a4e;
   margin-bottom: 6px;
   font-weight: 600;
 }
 .route-item {
   padding: 6px 8px;
   font-size: 12px;
-  color: #ccc;
+  color: #5a4e3c;
   cursor: pointer;
   border-radius: 4px;
   margin-bottom: 3px;
   transition: all 0.2s;
 }
-.route-item:hover { background: #16213e; color: #fff; }
-.route-item.active { background: #e94560; color: #fff; }
+.route-item:hover { background: rgba(45, 138, 78, 0.08); color: #3d3929; }
+.route-item.active { background: #2d8a4e; color: #fff; }
 
 .vehicle-list { display: flex; flex-direction: column; gap: 4px; }
 .vehicle-slot {
   display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  border-radius: 4px; cursor: pointer; background: #1a1a2e; transition: all 0.2s;
+  border-radius: 6px; cursor: pointer; background: rgba(255, 255, 255, 0.4); transition: all 0.2s;
   border: 1px solid transparent;
 }
-.vehicle-slot:hover { background: #16213e; }
-.vehicle-slot.active { border-color: #e94560; background: #16213e; }
+.vehicle-slot:hover { background: rgba(45, 138, 78, 0.06); }
+.vehicle-slot.active { border-color: #2d8a4e; background: rgba(45, 138, 78, 0.08); }
 .vehicle-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.vehicle-name { font-size: 13px; color: #e0e0e0; flex: 1; }
-.vehicle-path-count { font-size: 11px; color: #888; }
+.vehicle-name { font-size: 13px; color: #3d3929; flex: 1; }
+.vehicle-path-count { font-size: 11px; color: #8b7e6a; }
 .btn-remove-vehicle {
-  background: none; border: none; color: #e94560; font-size: 16px;
+  background: none; border: none; color: #e74c3c; font-size: 16px;
   cursor: pointer; padding: 0 4px; line-height: 1;
 }
-.btn-remove-vehicle:hover { color: #ff6b6b; }
+.btn-remove-vehicle:hover { color: #c0392b; }
+.collapse-toggle {
+  position: absolute;
+  left: 272px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 110;
+  width: 22px;
+  height: 48px;
+  border: none;
+  background: rgba(254, 252, 245, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: #2d8a4e;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+}
+.collapse-toggle:hover {
+  background: rgba(254, 252, 245, 0.95);
+  color: #1a6b35;
+}
+.coord-line {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-top: 1px solid rgba(45, 138, 78, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 10px;
+}
+.coord-line .coord-label {
+  color: #2d8a4e;
+  font-weight: 600;
+  font-size: 10px;
+  background: rgba(45, 138, 78, 0.08);
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.coord-line .coord-value {
+  color: #5a4e3c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 </style>

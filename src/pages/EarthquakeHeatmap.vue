@@ -1,9 +1,12 @@
 <template>
   <div class="earthquake-page">
-    <aside class="sidebar">
-      <h2>🌍 全球地震热力图</h2>
-      <p class="subtitle">数据来源：USGS 地震监测</p>
+    <aside class="sidebar" :class="{ collapsed }">
+      <div class="panel-header">
+        <h2>🌋 地震活动监测</h2>
+        <p class="subtitle">数据来源：USGS 地震监测</p>
+      </div>
 
+      <div v-show="!collapsed" class="panel-body">
       <div class="panel">
         <span class="label">🕐 时间范围</span>
         <select v-model="timeRange" @change="fetchData">
@@ -23,24 +26,10 @@
       </div>
 
       <div class="panel">
-        <span class="label">🔥 热力强度</span>
-        <div class="range-row">
-          <input type="range" v-model.number="heatIntensity" min="0.5" max="3" step="0.1" />
-          <span>{{ heatIntensity.toFixed(1) }}</span>
-        </div>
-      </div>
-
-      <div class="panel">
         <span class="label">🎨 底图风格</span>
         <select v-model="mapStyle" @change="switchStyle">
-          <option value="streets">街道（标准）</option>
-          <option value="outdoors">户外地形</option>
-          <option value="light">亮色简约</option>
-          <option value="dark">暗色系</option>
-          <option value="satellite">纯卫星图</option>
-          <option value="satellite-streets">卫星+道路</option>
-          <option value="nav-day">导航（白天）</option>
-          <option value="nav-night">导航（夜间）</option>
+          <option value="ion">Bing 卫星</option>
+          <option value="gaode">高德地图</option>
         </select>
       </div>
 
@@ -67,44 +56,38 @@
         <p v-if="quakes.length">📍 最近: <strong>{{ latestPlace }}</strong></p>
         <p v-if="playbackMode && currentTimeLabel">🕐 {{ currentTimeLabel }}</p>
       </div>
-    </aside>
-
-    <div class="map-area">
-      <div ref="mapContainer" class="map-container"></div>
-      <div v-if="playbackMode" class="timeline-bar">
-        <div class="timeline-progress" :style="{ width: timelinePercent + '%' }"></div>
-        <div class="timeline-info">
-          <span>{{ playbackStartLabel }}</span>
-          <span>{{ playbackEndLabel }}</span>
-        </div>
       </div>
-    </div>
+    </aside>
+    <button class="collapse-toggle" @click="collapsed = !collapsed" :title="collapsed ? '展开面板' : '收起面板'">
+      {{ collapsed ? '▶' : '◀' }}
+    </button>
+
+    <div class="map-area"></div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import mapboxgl from 'mapbox-gl'
-import 'mapbox-gl/dist/mapbox-gl.css'
+import * as Cesium from 'cesium'
+import { useScenarioStore } from '../stores/scenarioStore.js'
+import { useViewerStore } from '../stores/viewerStore.js'
 
-mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN || ''
+const store = useScenarioStore()
+const viewerStore = useViewerStore()
 
-const mapContainer = ref(null)
+const collapsed = ref(false)
 const timeRange = ref('week')
 const minMag = ref(2.5)
-const heatIntensity = ref(1.0)
-const mapStyle = ref('dark')
+const mapStyle = ref('gaode')
 const quakes = ref([])
 const playbackMode = ref(false)
 const playing = ref(false)
 const playSpeed = ref(2)
 const currentTimeLabel = ref('')
-const timelinePercent = ref(0)
-const playbackStartLabel = ref('')
-const playbackEndLabel = ref('')
 
-let map = null
-let heatLayerId = null
+let viewer = null
+let currentBaseLayer = null
+let quakeEntities = []
 let playbackTimer = null
 let playbackIndex = 0
 let sortedQuakes = []
@@ -120,9 +103,10 @@ const latestPlace = computed(() => {
   return sorted[0].place || '未知'
 })
 
-function getUSGSQuery(timeRange) {
-  const map = { hour: 'hour', day: 'day', week: 'week', month: 'month' }
-  return `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_${map[timeRange]}.geojson`
+function getStartTime() {
+  const now = new Date()
+  const offsets = { hour: 3600000, day: 86400000, week: 604800000, month: 2592000000 }
+  return new Date(now.getTime() - offsets[timeRange.value]).toISOString()
 }
 
 async function fetchData() {
@@ -138,125 +122,76 @@ async function fetchData() {
       place: f.properties.place,
       time: f.properties.time
     }))
-    updateHeatmap()
+    store.setEarthquakeData(quakes.value)
+    updateQuakes()
   } catch (e) {
     console.error('地震数据获取失败:', e)
   }
 }
 
-function getStartTime() {
-  const now = new Date()
-  const offsets = { hour: 3600000, day: 86400000, week: 604800000, month: 2592000000 }
-  return new Date(now.getTime() - offsets[timeRange.value]).toISOString()
+function magToColor(mag) {
+  if (mag < 2) return Cesium.Color.fromCssColorString('rgba(33,102,172,0.6)')
+  if (mag < 3) return Cesium.Color.fromCssColorString('rgba(103,169,207,0.7)')
+  if (mag < 4) return Cesium.Color.fromCssColorString('rgba(209,229,92,0.7)')
+  if (mag < 5) return Cesium.Color.fromCssColorString('rgba(253,219,102,0.8)')
+  if (mag < 6) return Cesium.Color.fromCssColorString('rgba(239,138,52,0.85)')
+  return Cesium.Color.fromCssColorString('rgba(215,48,39,0.9)')
 }
 
-const styleUrls = {
-  streets: 'mapbox://styles/mapbox/streets-v12',
-  outdoors: 'mapbox://styles/mapbox/outdoors-v12',
-  light: 'mapbox://styles/mapbox/light-v11',
-  dark: 'mapbox://styles/mapbox/dark-v11',
-  satellite: 'mapbox://styles/mapbox/satellite-v9',
-  'satellite-streets': 'mapbox://styles/mapbox/satellite-streets-v12',
-  'nav-day': 'mapbox://styles/mapbox/navigation-day-v1',
-  'nav-night': 'mapbox://styles/mapbox/navigation-night-v1'
+function clearQuakeEntities() {
+  if (viewer) {
+    quakeEntities.forEach(e => viewer.entities.remove(e))
+  }
+  quakeEntities = []
+}
+
+function updateQuakes() {
+  if (!viewer) return
+  clearQuakeEntities()
+  const filtered = playbackMode.value ? sortedQuakes.slice(0, playbackIndex) : quakes.value
+  const display = filtered.filter(q => q.mag >= minMag.value)
+  display.forEach(q => {
+    const entity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(q.lon, q.lat),
+      ellipse: {
+        semiMinorAxis: Math.max(5000, q.mag * 15000),
+        semiMajorAxis: Math.max(5000, q.mag * 15000),
+        material: magToColor(q.mag),
+        height: 0,
+      },
+      label: {
+        text: q.mag >= 4 ? `M${q.mag.toFixed(1)}` : '',
+        font: '11px sans-serif',
+        fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        pixelOffset: new Cesium.Cartesian2(0, 0),
+      },
+    })
+    quakeEntities.push(entity)
+  })
 }
 
 function switchStyle() {
-  if (!map) return
-  map.setStyle(styleUrls[mapStyle.value])
-  map.once('style.load', () => {
-    if (map.getSource('mapbox-dem')) {
-      map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 })
-    } else {
-      map.addSource('mapbox-dem', {
-        type: 'raster-dem',
-        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-        tileSize: 512,
-        maxzoom: 14
-      })
-      map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 })
-    }
-
-    const layers = map.getStyle().layers
-    let labelLayerId
-    for (const layer of layers) {
-      if (layer.type === 'symbol' && layer.layout && layer.layout['text-field']) {
-        labelLayerId = layer.id
-        break
-      }
-    }
-
-    if (!map.getLayer('3d-buildings')) {
-      map.addLayer({
-        id: '3d-buildings',
-        source: 'composite',
-        'source-layer': 'building',
-        filter: ['==', 'extrude', 'true'],
-        type: 'fill-extrusion',
-        minzoom: 10,
-        paint: {
-          'fill-extrusion-color': '#3a3a5c',
-          'fill-extrusion-height': ['get', 'height'],
-          'fill-extrusion-base': ['get', 'min_height'],
-          'fill-extrusion-opacity': 0.6
-        }
-      }, labelLayerId)
-    }
-
-    updateHeatmap()
-  })
+  if (!viewer) return
+  if (currentBaseLayer) {
+    viewer.imageryLayers.remove(currentBaseLayer, true)
+    currentBaseLayer = null
+  }
+  if (mapStyle.value === 'gaode') {
+    currentBaseLayer = viewer.imageryLayers.addImageryProvider(
+      new Cesium.UrlTemplateImageryProvider({
+        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+        subdomains: ['1', '2', '3', '4'],
+        minimumLevel: 3,
+        maximumLevel: 18,
+      }),
+      0
+    )
+  }
 }
 
-function updateHeatmap() {
-  if (!map || !map.isStyleLoaded()) return
-
-  const filtered = quakes.value.filter(q => q.mag >= minMag.value)
-
-  if (heatLayerId) {
-    map.removeLayer(heatLayerId)
-    if (map.getSource('earthquakes')) {
-      map.removeSource('earthquakes')
-    }
-  }
-
-  if (!filtered.length) return
-
-  const geojson = {
-    type: 'FeatureCollection',
-    features: filtered.map(q => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [q.lon, q.lat] },
-      properties: { mag: q.mag, depth: q.depth }
-    }))
-  }
-
-  map.addSource('earthquakes', { type: 'geojson', data: geojson })
-  heatLayerId = 'earthquake-heat'
-
-  map.addLayer({
-    id: heatLayerId,
-    type: 'heatmap',
-    source: 'earthquakes',
-    paint: {
-      'heatmap-weight': ['*', ['get', 'mag'], heatIntensity.value],
-      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
-      'heatmap-color': [
-        'interpolate', ['linear'], ['heatmap-density'],
-        0, 'rgba(33,102,172,0)',
-        0.1, 'rgb(103,169,207)',
-        0.3, 'rgb(209,229,92)',
-        0.5, 'rgb(253,219,102)',
-        0.7, 'rgb(239,138,52)',
-        0.9, 'rgb(215,48,39)'
-      ],
-      'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 10, 9, 40],
-      'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 9, 0.6]
-    }
-  })
-}
-
-watch(minMag, updateHeatmap)
-watch(heatIntensity, updateHeatmap)
+watch(minMag, updateQuakes)
 
 function togglePlayback() {
   playbackMode.value = !playbackMode.value
@@ -264,34 +199,22 @@ function togglePlayback() {
     startPlayback()
   } else {
     stopPlayback()
-    updateHeatmap()
+    updateQuakes()
   }
 }
 
 function togglePlay() {
   playing.value = !playing.value
-  if (playing.value) {
-    runPlaybackTick()
-  } else {
-    clearTimeout(playbackTimer)
-  }
+  if (playing.value) runPlaybackTick()
+  else clearTimeout(playbackTimer)
 }
 
 function startPlayback() {
   stopPlayback()
   sortedQuakes = [...quakes.value].sort((a, b) => a.time - b.time)
   playbackIndex = 0
-  timelinePercent.value = 0
-
-  if (sortedQuakes.length > 0) {
-    playbackStartLabel.value = formatTime(sortedQuakes[0].time)
-    playbackEndLabel.value = formatTime(sortedQuakes[sortedQuakes.length - 1].time)
-  }
-
   playing.value = true
-  if (map && map.getSource('earthquakes')) {
-    map.getSource('earthquakes').setData({ type: 'FeatureCollection', features: [] })
-  }
+  clearQuakeEntities()
   runPlaybackTick()
 }
 
@@ -303,46 +226,17 @@ function stopPlayback() {
 
 function runPlaybackTick() {
   if (!playing.value || !playbackMode.value) return
-
   const batchSize = Math.max(1, Math.floor(playSpeed.value * 5))
-  const end = Math.min(playbackIndex + batchSize, sortedQuakes.length)
-  const batch = sortedQuakes.slice(playbackIndex, end)
-
-  playbackIndex = end
-  timelinePercent.value = sortedQuakes.length > 0 ? (playbackIndex / sortedQuakes.length) * 100 : 0
-
-  if (batch.length > 0) {
-    const last = batch[batch.length - 1]
-    currentTimeLabel.value = formatTime(last.time)
-
-    const existingFeatures = []
-    if (map && map.getSource('earthquakes')) {
-      const data = map.getSource('earthquakes')._data
-      if (data && data.features) {
-        existingFeatures.push(...data.features)
-      }
-    }
-
-    const newFeatures = batch.filter(q => q.mag >= minMag.value).map(q => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [q.lon, q.lat] },
-      properties: { mag: q.mag, depth: q.depth }
-    }))
-
-    const allFeatures = [...existingFeatures, ...newFeatures]
-    if (map && map.getSource('earthquakes')) {
-      map.getSource('earthquakes').setData({
-        type: 'FeatureCollection',
-        features: allFeatures
-      })
-    }
+  playbackIndex = Math.min(playbackIndex + batchSize, sortedQuakes.length)
+  if (playbackIndex > 0 && playbackIndex <= sortedQuakes.length) {
+    currentTimeLabel.value = formatTime(sortedQuakes[playbackIndex - 1].time)
   }
-
+  updateQuakes()
   if (playbackIndex < sortedQuakes.length) {
     playbackTimer = setTimeout(runPlaybackTick, 100)
   } else {
     playing.value = false
-    currentTimeLabel.value = '回放完成 🎉'
+    currentTimeLabel.value = '回放完成'
   }
 }
 
@@ -352,125 +246,141 @@ function formatTime(ts) {
 }
 
 onMounted(() => {
-  map = new mapboxgl.Map({
-    container: mapContainer.value,
-    style: styleUrls.dark,
-    center: [116.4, 39.9],
-    zoom: 4,
-    pitch: 45,
-    attributionControl: false
+  viewer = viewerStore.viewer
+  if (!viewer) return
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(116.4, 39.9, 12000000),
   })
-
-  map.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
-
-  map.on('load', () => {
-    map.addSource('mapbox-dem', {
-      type: 'raster-dem',
-      url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-      tileSize: 512,
-      maxzoom: 14
-    })
-    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 })
-
-    const layers = map.getStyle().layers
-    let labelLayerId
-    for (const layer of layers) {
-      if (layer.type === 'symbol' && layer.layout && layer.layout['text-field']) {
-        labelLayerId = layer.id
-        break
-      }
-    }
-
-    map.addLayer({
-      id: '3d-buildings',
-      source: 'composite',
-      'source-layer': 'building',
-      filter: ['==', 'extrude', 'true'],
-      type: 'fill-extrusion',
-      minzoom: 10,
-      paint: {
-        'fill-extrusion-color': '#3a3a5c',
-        'fill-extrusion-height': ['get', 'height'],
-        'fill-extrusion-base': ['get', 'min_height'],
-        'fill-extrusion-opacity': 0.6
-      }
-    }, labelLayerId)
-
-    fetchData()
-  })
+  switchStyle()
+  fetchData()
 })
 
 onBeforeUnmount(() => {
   stopPlayback()
-  if (map) {
-    map.remove()
-    map = null
+  clearQuakeEntities()
+  if (viewer && currentBaseLayer) {
+    viewer.imageryLayers.remove(currentBaseLayer, true)
+    currentBaseLayer = null
   }
+  viewer = null
 })
 </script>
 
 <style scoped>
 .earthquake-page {
-  display: flex; height: 100%; overflow: hidden;
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
 }
 .sidebar {
-  width: 280px; flex-shrink: 0; padding: 20px 16px;
-  background: rgba(22, 33, 62, 0.95); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 16px;
-  border-right: 1px solid #0f3460;
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
+  width: 280px;
+  z-index: 100;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(254, 252, 245, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 138, 78, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.sidebar h2 { font-size: 18px; color: #fff; margin: 0; }
-.subtitle { font-size: 12px; color: #888; margin: 0; }
+.sidebar.collapsed { left: -280px; box-shadow: none; }
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: rgba(45, 138, 78, 0.2); border-radius: 2px; }
+
+.panel-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
+  flex-shrink: 0;
+}
+.panel-header h2 { font-size: 14px; color: #2d8a4e; margin: 0 0 2px; font-weight: 700; }
+.subtitle { font-size: 10px; color: #8b7e6a; margin: 1px 0; }
+
+.panel-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+}
 .panel {
   display: flex; flex-direction: column; gap: 6px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid rgba(45, 138, 78, 0.08);
 }
-.label { font-size: 13px; color: #aaa; }
+.label { font-size: 12px; color: #6b5e4a; font-weight: 500; }
 select {
-  padding: 8px 10px; border-radius: 6px; border: 1px solid #2a2a4a;
-  background: #1a1a2e; color: #e0e0e0; font-size: 13px; cursor: pointer;
+  padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(45, 138, 78, 0.2);
+  background: rgba(255, 255, 255, 0.5); color: #3d3929; font-size: 12px; cursor: pointer;
 }
 .range-row {
-  display: flex; align-items: center; gap: 10px; font-size: 13px; color: #ccc;
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: #5a4e3c;
 }
-.range-row input[type="range"] { flex: 1; accent-color: #e94560; }
+.range-row input[type="range"] { flex: 1; accent-color: #f59e0b; }
 .stats {
-  margin-top: auto; padding: 12px; background: rgba(255,255,255,0.04);
-  border-radius: 8px; font-size: 13px; color: #aaa; line-height: 1.8;
+  margin-top: auto; padding: 10px; background: rgba(45, 138, 78, 0.06);
+  border-radius: 8px; font-size: 12px; color: #6b5e4a; line-height: 1.8;
+  border: 1px solid rgba(45, 138, 78, 0.08);
 }
-.stats strong { color: #e94560; }
-.map-area { flex: 1; position: relative; }
-.map-container { width: 100%; height: 100%; }
+.stats strong { color: #e74c3c; }
+.map-area { position: absolute; inset: 0; z-index: 0; }
 .preset-btn {
-  padding: 8px 12px; border-radius: 6px; border: 1px solid #2a2a4a;
-  background: rgba(255,255,255,0.06); color: #ccc; font-size: 13px;
-  cursor: pointer; transition: all 0.2s;
+  padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(45, 138, 78, 0.2);
+  background: rgba(45, 138, 78, 0.06); color: #3d3929; font-size: 13px;
+  cursor: pointer; transition: all 0.2s; font-weight: 500;
 }
-.preset-btn:hover { background: rgba(255,255,255,0.12); }
-.preset-btn.active { background: #e94560; border-color: #e94560; color: #fff; }
+.preset-btn:hover { background: rgba(245, 158, 11, 0.08); border-color: #f59e0b; }
+.preset-btn.active { background: #2d8a4e; border-color: #2d8a4e; color: #fff; }
 .playback-controls {
   display: flex; align-items: center; gap: 10px; margin-top: 4px;
 }
 .play-btn {
-  width: 36px; height: 36px; border-radius: 50%; border: 1px solid #2a2a4a;
-  background: rgba(255,255,255,0.08); color: #fff; font-size: 16px;
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(45, 138, 78, 0.2);
+  background: rgba(45, 138, 78, 0.06); color: #2d8a4e; font-size: 16px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.play-btn:hover { background: rgba(255,255,255,0.16); }
+.play-btn:hover { background: rgba(45, 138, 78, 0.12); }
 .speed-row {
-  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #888; flex: 1;
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b7e6a; flex: 1;
 }
-.speed-row input[type="range"] { flex: 1; accent-color: #e94560; }
-.timeline-bar {
-  position: absolute; bottom: 20px; left: 20px; right: 20px; height: 6px;
-  background: rgba(255,255,255,0.1); border-radius: 3px; overflow: visible;
+.speed-row input[type="range"] { flex: 1; accent-color: #f59e0b; }
+.collapse-toggle {
+  position: absolute;
+  left: 292px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 101;
+  width: 24px;
+  height: 48px;
+  border-radius: 0 8px 8px 0;
+  border: 1px solid rgba(45, 138, 78, 0.12);
+  border-left: none;
+  background: rgba(254, 252, 245, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 12px;
+  cursor: pointer;
+  color: #6b5e4a;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
-.timeline-progress {
-  height: 100%; background: linear-gradient(90deg, #e94560, #ff6b6b);
-  border-radius: 3px; transition: width 0.1s linear;
-}
-.timeline-info {
-  display: flex; justify-content: space-between; font-size: 11px; color: #888;
-  margin-top: 4px;
+.collapse-toggle:hover {
+  background: rgba(254, 252, 245, 0.95);
+  color: #1a6b35;
 }
 </style>

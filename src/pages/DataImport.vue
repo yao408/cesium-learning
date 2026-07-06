@@ -1,14 +1,15 @@
 <template>
   <div class="data-page">
-    <aside class="side-panel">
-      <div class="panel">
-        <h3>🧰 工具箱</h3>
+    <aside class="side-panel" :class="{ collapsed }">
+      <div class="panel-header">
+        <h3>📡 多源数据接入</h3>
         <p class="hint">图层加载 · GeoJSON · 3D模型 · 绘制 · 标注</p>
+      </div>
+      <div v-show="!collapsed" class="panel-body">
         <div class="btn-row" style="margin-top:6px">
           <button :class="{ active: is2D }" @click="switchTo2D" class="btn btn-sm">📐 2D</button>
           <button :class="{ active: !is2D }" @click="switchTo3D" class="btn btn-sm">🌍 3D</button>
         </div>
-      </div>
 
       <div class="panel">
         <h4>🗺️ 底图切换</h4>
@@ -30,50 +31,56 @@
       </div>
 
       <div class="panel">
-        <h4>🏗️ 3D 模型 (glTF)</h4>
-        <div class="btn-row">
-          <button @click="triggerFileInput('model')" class="btn btn-sm">📁 本地文件</button>
-          <button @click="clearModel" class="btn btn-danger btn-sm">清除</button>
-        </div>
-        <input type="file" ref="modelInput" accept=".gltf,.glb" @change="onModelFile" style="display:none" />
-        <div v-if="modelLoaded" class="control-group">
-          <label>缩放 {{ modelScale.toFixed(0) }}x</label>
-          <input type="range" v-model.number="modelScale" min="1" max="2000" step="10" @input="updateModelScale" />
-        </div>
-      </div>
-
-      <div class="panel">
-        <h4>🧊 绘制几何体</h4>
-        <div class="btn-row">
-          <button :class="{ active: geoMode === 'box' }" @click="startGeoDraw('box')" class="btn btn-sm">盒子</button>
-          <button :class="{ active: geoMode === 'cylinder' }" @click="startGeoDraw('cylinder')" class="btn btn-sm">圆柱</button>
-          <button :class="{ active: geoMode === 'sphere' }" @click="startGeoDraw('sphere')" class="btn btn-sm">球体</button>
-          <button :class="{ active: geoMode === 'wall' }" @click="startGeoDraw('wall')" class="btn btn-sm">墙体</button>
-        </div>
-        <div v-if="geoMode" class="control-group">
-          <label>尺寸 {{ geoSize.toFixed(0) }}m</label>
-          <input type="range" v-model.number="geoSize" min="10" max="500" step="10" />
-        </div>
-        <button v-if="geoMode" @click="clearGeoDraw" class="btn btn-danger btn-sm" style="margin-top:4px">取消</button>
-        <p v-if="geoMode" class="hint">点击地图放置几何体</p>
-      </div>
-
-      <div class="panel">
-        <h4>✏️ 绘制</h4>
-        <div class="btn-row">
-          <button :class="{ active: drawMode === 'point' }" @click="startDraw('point')" class="btn btn-sm">点</button>
-          <button :class="{ active: drawMode === 'line' }" @click="startDraw('line')" class="btn btn-sm">线</button>
-          <button :class="{ active: drawMode === 'polygon' }" @click="startDraw('polygon')" class="btn btn-sm">面</button>
-          <button @click="clearDraw" class="btn btn-danger btn-sm">清除</button>
-        </div>
-        <p class="hint">左键添加点，右键完成绘制</p>
-        <div v-if="drawInfoList.length" class="draw-info">
-          <div v-for="(info, i) in drawInfoList" :key="i" class="draw-item">
-            <span class="draw-type">{{ info.type === 'point' ? '📍' : info.type === 'line' ? '📏' : '⬠' }} {{ info.type }}</span>
-            <span class="draw-coords" :title="info.coords">{{ info.coords }}</span>
-            <button @click="exportDrawItem(i)" class="btn btn-xs">导出</button>
+        <h4 class="collapsible" @click="toggleSection('model')">🏗️ 3D 模型 (glTF) <span class="collapse-arrow">{{ sections.model ? '▶' : '▼' }}</span></h4>
+        <div v-show="!sections.model">
+          <div class="btn-row">
+            <button @click="triggerFileInput('model')" class="btn btn-sm">📁 本地文件</button>
+            <button @click="clearModel" class="btn btn-danger btn-sm">清除</button>
           </div>
-          <button @click="exportAllDraw" class="btn btn-sm" style="margin-top:4px">导出全部 GeoJSON</button>
+          <input type="file" ref="modelInput" accept=".gltf,.glb" @change="onModelFile" style="display:none" />
+          <div v-if="modelLoaded" class="control-group">
+            <label>缩放 {{ modelScale.toFixed(0) }}x</label>
+            <input type="range" v-model.number="modelScale" min="1" max="2000" step="10" @input="updateModelScale" />
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="collapsible" @click="toggleSection('geo')">🧊 绘制几何体 <span class="collapse-arrow">{{ sections.geo ? '▶' : '▼' }}</span></h4>
+        <div v-show="!sections.geo">
+          <div class="btn-row">
+            <button :class="{ active: geoMode === 'box' }" @click="startGeoDraw('box')" class="btn btn-sm">盒子</button>
+            <button :class="{ active: geoMode === 'cylinder' }" @click="startGeoDraw('cylinder')" class="btn btn-sm">圆柱</button>
+            <button :class="{ active: geoMode === 'sphere' }" @click="startGeoDraw('sphere')" class="btn btn-sm">球体</button>
+            <button :class="{ active: geoMode === 'wall' }" @click="startGeoDraw('wall')" class="btn btn-sm">墙体</button>
+          </div>
+          <div v-if="geoMode" class="control-group">
+            <label>尺寸 {{ geoSize.toFixed(0) }}m</label>
+            <input type="range" v-model.number="geoSize" min="10" max="500" step="10" />
+          </div>
+          <button v-if="geoMode" @click="clearGeoDraw" class="btn btn-danger btn-sm" style="margin-top:4px">取消</button>
+          <p v-if="geoMode" class="hint">点击地图放置几何体</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="collapsible" @click="toggleSection('draw')">✏️ 绘制 <span class="collapse-arrow">{{ sections.draw ? '▶' : '▼' }}</span></h4>
+        <div v-show="!sections.draw">
+          <div class="btn-row">
+            <button :class="{ active: drawMode === 'point' }" @click="startDraw('point')" class="btn btn-sm">点</button>
+            <button :class="{ active: drawMode === 'line' }" @click="startDraw('line')" class="btn btn-sm">线</button>
+            <button :class="{ active: drawMode === 'polygon' }" @click="startDraw('polygon')" class="btn btn-sm">面</button>
+            <button @click="clearDraw" class="btn btn-danger btn-sm">清除</button>
+          </div>
+          <p class="hint">左键添加点，右键完成绘制</p>
+          <div v-if="drawInfoList.length" class="draw-info">
+            <div v-for="(info, i) in drawInfoList" :key="i" class="draw-item">
+              <span class="draw-type">{{ info.type === 'point' ? '📍' : info.type === 'line' ? '📏' : '⬠' }} {{ info.type }}</span>
+              <span class="draw-coords" :title="info.coords">{{ info.coords }}</span>
+              <button @click="exportDrawItem(i)" class="btn btn-xs">导出</button>
+            </div>
+            <button @click="exportAllDraw" class="btn btn-sm" style="margin-top:4px">导出全部 GeoJSON</button>
+          </div>
         </div>
       </div>
 
@@ -84,55 +91,28 @@
           <button @click="clearLabels" class="btn btn-danger btn-sm">清除</button>
         </div>
       </div>
-
-      <div class="panel">
-        <h4>🌐 后端API</h4>
-        <input v-model="apiUrl" class="url-input" placeholder="GeoJSON API 地址" />
-        <div class="btn-row" style="margin-top:4px">
-          <button @click="loadApiGeoJSON" class="btn btn-sm" :disabled="!apiUrl || apiLoading">{{ apiLoading ? '加载中...' : '加载' }}</button>
-          <button @click="clearApiGeoJSON" class="btn btn-danger btn-sm">清除</button>
-        </div>
-        <p v-if="apiCount" class="hint">已加载 {{ apiCount }} 个实体</p>
-        <p v-if="apiError" class="hint" style="color:#e94560">{{ apiError }}</p>
-      </div>
-
-      <div class="panel">
-        <h4>🗺️ GeoServer WMS</h4>
-        <input v-model="wmsUrl" class="url-input" placeholder="WMS地址，如 /geoserver/wms" />
-        <input v-model="wmsLayer" class="url-input" style="margin-top:4px" placeholder="图层名，如 topp:states" />
-        <div class="btn-row" style="margin-top:4px">
-          <button @click="loadWMS" class="btn btn-sm" :disabled="!wmsUrl || !wmsLayer">加载</button>
-          <button @click="clearWMS" class="btn btn-danger btn-sm">清除</button>
-        </div>
-        <p v-if="wmsLoaded" class="hint">WMS: {{ wmsLayer }}</p>
-      </div>
-
-      <div class="panel">
-        <h4>📡 GeoServer WFS</h4>
-        <input v-model="wfsUrl" class="url-input" placeholder="WFS地址，如 /geoserver/wfs" />
-        <input v-model="wfsType" class="url-input" style="margin-top:4px" placeholder="要素类型，如 topp:states" />
-        <div class="btn-row" style="margin-top:4px">
-          <button @click="loadWFS" class="btn btn-sm" :disabled="!wfsUrl || !wfsType || wfsLoading">{{ wfsLoading ? '加载中...' : '加载' }}</button>
-          <button @click="clearWFS" class="btn btn-danger btn-sm">清除</button>
-        </div>
-        <p v-if="wfsCount" class="hint">已加载 {{ wfsCount }} 个要素</p>
-        <p v-if="wfsError" class="hint" style="color:#e94560">{{ wfsError }}</p>
       </div>
     </aside>
+    <button class="collapse-toggle" @click="collapsed = !collapsed" :title="collapsed ? '展开面板' : '收起面板'">
+      {{ collapsed ? '▶' : '◀' }}
+    </button>
 
-    <div class="map-area">
-      <div ref="cesiumContainer" class="cesium-container"></div>
-    </div>
+    <div class="map-area"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as Cesium from 'cesium'
+import { useScenarioStore } from '../stores/scenarioStore.js'
+import { useViewerStore } from '../stores/viewerStore.js'
 
-Cesium.Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_TOKEN
+const store = useScenarioStore()
+const viewerStore = useViewerStore()
 
-const cesiumContainer = ref(null)
+const collapsed = ref(false)
+const sections = reactive({ model: true, geo: true, draw: true })
+function toggleSection(key) { sections[key] = !sections[key] }
 const is2D = ref(false)
 const currentBaseMap = ref('ion')
 const loadingGeoJSON = ref(false)
@@ -149,19 +129,6 @@ const drawInfoList = ref([])
 const geojsonInput = ref(null)
 const modelInput = ref(null)
 
-const apiUrl = ref('')
-const apiLoading = ref(false)
-const apiCount = ref(0)
-const apiError = ref('')
-const wmsUrl = ref('')
-const wmsLayer = ref('')
-const wmsLoaded = ref(false)
-const wfsUrl = ref('')
-const wfsType = ref('')
-const wfsLoading = ref(false)
-const wfsCount = ref(0)
-const wfsError = ref('')
-
 let viewer = null
 let geojsonDataSource = null
 let modelEntity = null
@@ -173,9 +140,8 @@ let labelEntities = []
 let geoHandler = null
 let geoEntities = []
 let currentBaseLayer = null
-let apiDataSource = null
-let wmsLayerRef = null
-let wfsDataSource = null
+
+function getViewer() { return viewerStore.viewer }
 
 function switchBaseMap(type) {
   currentBaseMap.value = type
@@ -237,6 +203,7 @@ async function onGeoJSONFile(e) {
       }
     })
     geojsonCount.value = entities.length
+    store.setAOI({ name: file.name.replace(/\.[^/.]+$/, ''), type: 'geojson', entities: entities.length })
     viewer.flyTo(geojsonDataSource)
   } catch (e) {
     console.error('GeoJSON 加载失败:', e)
@@ -296,108 +263,6 @@ function clearGeoDraw() {
   geoEntities = []
   geoMode.value = ''
   if (geoHandler) { geoHandler.destroy(); geoHandler = null }
-}
-
-async function loadApiGeoJSON() {
-  if (!apiUrl.value) return
-  apiLoading.value = true
-  apiError.value = ''
-  clearApiGeoJSON()
-  try {
-    const res = await fetch(apiUrl.value)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const geoJSON = await res.json()
-    const colorMap = ['#e94560', '#0f3460', '#16213e', '#533483', '#3d7ea6', '#2d6a4f', '#e76f51', '#2a9d8f']
-    apiDataSource = await Cesium.GeoJsonDataSource.load(geoJSON, {
-      stroke: Cesium.Color.WHITE,
-      strokeWidth: 1,
-    })
-    apiDataSource.entities.values.forEach((entity, i) => {
-      if (entity.polygon) {
-        entity.polygon.material = Cesium.Color.fromCssColorString(colorMap[i % colorMap.length]).withAlpha(0.5)
-        entity.polygon.outline = true
-        entity.polygon.outlineColor = Cesium.Color.WHITE
-        entity.polygon.outlineWidth = 1
-      }
-    })
-    viewer.dataSources.add(apiDataSource)
-    apiCount.value = apiDataSource.entities.values.length
-    viewer.flyTo(apiDataSource)
-  } catch (e) {
-    apiError.value = `加载失败: ${e.message}`
-  } finally {
-    apiLoading.value = false
-  }
-}
-
-function clearApiGeoJSON() {
-  if (apiDataSource) { viewer.dataSources.remove(apiDataSource); apiDataSource = null }
-  apiCount.value = 0
-  apiError.value = ''
-}
-
-function loadWMS() {
-  if (!wmsUrl.value || !wmsLayer.value) return
-  clearWMS()
-  wmsLayerRef = viewer.imageryLayers.addImageryProvider(
-    new Cesium.WebMapServiceImageryProvider({
-      url: wmsUrl.value,
-      layers: wmsLayer.value,
-      parameters: { transparent: true, format: 'image/png' },
-    }),
-  )
-  wmsLoaded.value = true
-}
-
-function clearWMS() {
-  if (wmsLayerRef) { viewer.imageryLayers.remove(wmsLayerRef); wmsLayerRef = null }
-  wmsLoaded.value = false
-}
-
-async function loadWFS() {
-  if (!wfsUrl.value || !wfsType.value) return
-  wfsLoading.value = true
-  wfsError.value = ''
-  clearWFS()
-  try {
-    const params = new URLSearchParams({
-      service: 'WFS',
-      version: '2.0.0',
-      request: 'GetFeature',
-      typeNames: wfsType.value,
-      outputFormat: 'application/json',
-    })
-    const url = `${wfsUrl.value}?${params}`
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const geoJSON = await res.json()
-    const colorMap = ['#e94560', '#0f3460', '#16213e', '#533483', '#3d7ea6', '#2d6a4f', '#e76f51', '#2a9d8f']
-    wfsDataSource = await Cesium.GeoJsonDataSource.load(geoJSON, {
-      stroke: Cesium.Color.WHITE,
-      strokeWidth: 1,
-    })
-    wfsDataSource.entities.values.forEach((entity, i) => {
-      if (entity.polygon) {
-        entity.polygon.material = Cesium.Color.fromCssColorString(colorMap[i % colorMap.length]).withAlpha(0.5)
-        entity.polygon.outline = true
-        entity.polygon.outlineColor = Cesium.Color.WHITE
-        entity.polygon.outlineWidth = 1
-      }
-    })
-    viewer.dataSources.add(wfsDataSource)
-    wfsCount.value = wfsDataSource.entities.values.length
-    viewer.flyTo(wfsDataSource)
-  } catch (e) {
-    wfsError.value = `加载失败: ${e.message}`
-  } finally {
-    wfsLoading.value = false
-  }
-}
-
-function clearWFS() {
-  if (wfsDataSource) { viewer.dataSources.remove(wfsDataSource); wfsDataSource = null }
-  wfsCount.value = 0
-  wfsError.value = ''
 }
 
 function startGeoDraw(type) {
@@ -562,6 +427,7 @@ function finishDraw() {
   }
   drawPoints = []
   drawMode.value = ''
+  store.setHazards(drawInfoList.value.map(d => ({ type: d.type, coords: d.coords })))
   if (drawHandler) { drawHandler.destroy(); drawHandler = null }
 }
 
@@ -630,14 +496,8 @@ function setupGeoJSONClick() {
 }
 
 onMounted(() => {
-  viewer = new Cesium.Viewer(cesiumContainer.value, {
-    animation: false, timeline: false,
-    baseLayerPicker: false, fullscreenButton: false, geocoder: false,
-    homeButton: false, sceneModePicker: false, navigationHelpButton: false,
-    infoBox: false, selectionIndicator: false,
-  })
-  viewer.scene.globe.depthTestAgainstTerrain = true
-  viewer.scene.screenSpaceCameraController.minimumZoomDistance = 100
+  viewer = viewerStore.viewer
+  if (!viewer) return
   viewer.scene.setTerrain(new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1)))
   viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
   setupGeoJSONClick()
@@ -646,45 +506,136 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (drawHandler) drawHandler.destroy()
   if (labelHandler) labelHandler.destroy()
-  if (viewer) viewer.destroy()
+  if (geojsonDataSource) viewer.dataSources.remove(geojsonDataSource, true)
+  if (currentBaseLayer) viewer.imageryLayers.remove(currentBaseLayer, true)
+  geojsonDataSource = null
+  currentBaseLayer = null
+  viewer = null
 })
 </script>
 
 <style scoped>
-.data-page { display: flex; height: 100%; overflow: hidden; }
-.side-panel {
-  width: 280px; background: #16213e; padding: 10px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;
-  border-right: 1px solid #0f3460;
+.data-page {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
 }
-.panel { background: #1a1a2e; border-radius: 8px; padding: 10px; }
-.panel h3 { font-size: 15px; margin-bottom: 2px; color: #e94560; }
-.panel h4 { font-size: 12px; margin-bottom: 6px; color: #ccc; }
-.hint { font-size: 11px; color: #888; margin-top: 3px; line-height: 1.4; }
+.side-panel {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
+  width: 280px;
+  z-index: 100;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(254, 252, 245, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 138, 78, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.side-panel.collapsed {
+  left: -280px;
+  box-shadow: none;
+}
+.side-panel.collapsed ~ .collapse-toggle {
+  left: 12px;
+}
+.side-panel::-webkit-scrollbar { width: 4px; }
+.side-panel::-webkit-scrollbar-thumb { background: rgba(45, 138, 78, 0.2); border-radius: 2px; }
+
+.panel-header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(45, 138, 78, 0.1);
+  flex-shrink: 0;
+}
+.panel-header h3 {
+  font-size: 14px;
+  color: #3a9db0;
+  margin: 0 0 2px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.panel-header .hint {
+  font-size: 10px;
+  color: #8b7e6a;
+  margin: 1px 0;
+}
+
+.panel-body {
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex: 1;
+}
+.panel { background: rgba(255, 255, 255, 0.5); border-radius: 8px; padding: 10px; border: 1px solid rgba(45, 138, 78, 0.08); }
+.panel h3 { font-size: 14px; margin-bottom: 2px; color: #3a9db0; }
+.panel h4 { font-size: 11px; margin-bottom: 4px; color: #5a4e3c; }
+.collapsible { cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+.collapsible:hover { color: #2d8a4e; }
+.collapse-arrow { font-size: 10px; opacity: 0.5; }
+.hint { font-size: 11px; color: #8b7e6a; margin-top: 3px; line-height: 1.4; }
 .btn-row { display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
 .btn {
-  padding: 6px 10px; border: none; border-radius: 5px;
-  background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 11px;
-  transition: all 0.2s; flex: 1; min-width: 50px;
+  padding: 6px 10px; border: none; border-radius: 6px;
+  background: rgba(45, 138, 78, 0.1); color: #3d3929; cursor: pointer; font-size: 11px;
+  transition: all 0.2s; flex: 1; min-width: 50px; font-weight: 500;
 }
-.btn:hover:not(:disabled) { background: #1a5080; }
+.btn:hover:not(:disabled) { background: rgba(45, 138, 78, 0.18); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-sm { flex: 0; padding: 5px 10px; }
-.btn.active { background: #e94560; color: #fff; }
-.btn.active:hover { background: #e94560; }
-.btn-danger { background: #3d1a2e; flex: 0; }
-.btn-danger:hover { background: #5a2a40; }
+.btn.active { background: #3a9db0; color: #fff; }
+.btn.active:hover { background: #1a6b35; }
+.btn-danger { background: rgba(231, 76, 60, 0.08); flex: 0; color: #e74c3c; }
+.btn-danger:hover { background: rgba(231, 76, 60, 0.15); }
 .control-group { margin-top: 4px; }
-.control-group label { font-size: 10px; color: #999; display: block; margin-bottom: 2px; }
-.control-group input[type=range] { width: 100%; accent-color: #e94560; }
+.control-group label { font-size: 10px; color: #8b7e6a; display: block; margin-bottom: 2px; }
+.control-group input[type=range] { width: 100%; accent-color: #f59e0b; }
 .draw-info { margin-top: 4px; max-height: 200px; overflow-y: auto; }
-.draw-item { display: flex; align-items: center; gap: 4px; padding: 3px 0; border-bottom: 1px solid #0f3460; font-size: 10px; }
-.draw-type { color: #e94560; flex-shrink: 0; text-transform: uppercase; }
-.draw-coords { color: #999; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.btn-xs { padding: 2px 6px; font-size: 10px; border: none; border-radius: 3px; background: #0f3460; color: #e0e0e0; cursor: pointer; }
-.btn-xs:hover { background: #1a5080; }
-.url-input { width: 100%; padding: 5px 8px; border: 1px solid #0f3460; border-radius: 4px; background: #1a1a2e; color: #e0e0e0; font-size: 11px; box-sizing: border-box; }
-.url-input::placeholder { color: #555; }
-.map-area { flex: 1; position: relative; }
-.cesium-container { width: 100%; height: 100%; }
+.draw-item { display: flex; align-items: center; gap: 4px; padding: 3px 0; border-bottom: 1px solid rgba(45, 138, 78, 0.08); font-size: 10px; }
+.draw-type { color: #3a9db0; flex-shrink: 0; text-transform: uppercase; }
+.draw-coords { color: #8b7e6a; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-xs { padding: 2px 6px; font-size: 10px; border: none; border-radius: 3px; background: rgba(45, 138, 78, 0.1); color: #3d3929; cursor: pointer; }
+.btn-xs:hover { background: rgba(45, 138, 78, 0.18); }
+.url-input { width: 100%; padding: 5px 8px; border: 1px solid rgba(45, 138, 78, 0.2); border-radius: 4px; background: rgba(255, 255, 255, 0.5); color: #3d3929; font-size: 11px; box-sizing: border-box; }
+.url-input::placeholder { color: #b0a590; }
+.collapse-toggle {
+  position: absolute;
+  left: 292px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 110;
+  width: 22px;
+  height: 48px;
+  border: none;
+  background: rgba(254, 252, 245, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  color: #3a9db0;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+}
+.collapse-toggle:hover {
+  background: rgba(254, 252, 245, 0.95);
+  color: #1a6b35;
+}
+.map-area {
+  position: absolute; inset: 0; z-index: 0;
+}
 </style>
