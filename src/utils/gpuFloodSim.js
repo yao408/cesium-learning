@@ -161,6 +161,7 @@ export class GPUFloodSim {
     this._outflowWrite = null
     this._waterRead = null
     this._waterWrite = null
+    this._cachedBoundary = []
     this.initialized = false
     this.sourceSet = false
     this.simulationArea = null
@@ -170,6 +171,7 @@ export class GPUFloodSim {
     this._preRenderListener = null
     this._waterLevel = 0
     this._stepCount = 0
+    this.flowRate = 0.1
     this._glFormat = null
     this._glInternalFormat = null
   }
@@ -422,6 +424,8 @@ export class GPUFloodSim {
     const si = Math.max(0, Math.min(this.gridSize, srcI))
     const sj = Math.max(0, Math.min(this.gridSize, srcJ))
 
+    this.sourcePoint = [si / this.gridSize, sj / this.gridSize]
+
     const size = this.gridSize + 1
     const waterArr = this.waterData
     for (let i = 0; i < size * size; i++) {
@@ -460,27 +464,19 @@ export class GPUFloodSim {
 
     this._updateCesiumTexture()
 
-  
-  
+  }
+
+  setFlowRate(rate) {
+    this.flowRate = Math.max(0.01, Math.min(1.0, rate))
   }
 
   simulateStep(deltaTime) {
     if (!this.initialized || !this.sourceSet) return
 
-    if (!this._loggedUniforms) {
-      console.log('=== Uniforms 检查 (仅一次) ===')
-      console.log('u_water texture:', this._waterRead)
-      console.log('u_outflow texture:', this._outflowRead)
-      console.log('u_cellSize:', 1.0 / this.textureWidth, 1.0 / this.textureHeight)
-      console.log('u_timeStep:', this.timeStep || 0.016)
-      console.log('u_sourcePoint:', this.sourcePoint || [0.5, 0.5])
-      this._loggedUniforms = true
-    }
-
     const gl = this._getGL()
     const size = this.gridSize + 1
     const texelSize = 1.0 / size
-    const flowRate = 0.1
+    const flowRate = this.flowRate || 0.1
 
     const savedViewport = gl.getParameter(gl.VIEWPORT)
     const savedFBO = gl.getParameter(gl.FRAMEBUFFER_BINDING)
@@ -585,21 +581,28 @@ _updateCesiumTexture() {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.deleteFramebuffer(tempFBO)
 
+      this._computeBoundaryFromData(floatData, size, gl)
+
       const canvas = document.createElement('canvas')
       canvas.width = size
       canvas.height = size
       const ctx = canvas.getContext('2d')
       const imageData = ctx.createImageData(size, size)
 
-      for (let i = 0; i < totalPixels; i++) {
-        const val = floatData[i * 4]
-        if (val > 0.0001) {
-          imageData.data[i * 4] = 140
-          imageData.data[i * 4 + 1] = 210
-          imageData.data[i * 4 + 2] = 255
-          const edgeAlpha = Math.min(1.0, (val - 0.0001) / 0.001)
-          const waterAlpha = 0.4 / (1 + val * 0.2)
-          imageData.data[i * 4 + 3] = Math.floor(edgeAlpha * waterAlpha * 255)
+      for (let y = 0; y < size; y++) {
+        const glY = size - 1 - y
+        for (let x = 0; x < size; x++) {
+          const i = glY * size + x
+          const val = floatData[i * 4]
+          if (val > 0.0001) {
+            const ci = (y * size + x) * 4
+            imageData.data[ci] = 140
+            imageData.data[ci + 1] = 210
+            imageData.data[ci + 2] = 255
+            const edgeAlpha = Math.min(1.0, (val - 0.0001) / 0.001)
+            const waterAlpha = 0.4 / (1 + val * 0.2)
+            imageData.data[ci + 3] = Math.floor(edgeAlpha * waterAlpha * 255)
+          }
         }
       }
 
@@ -615,11 +618,13 @@ _updateCesiumTexture() {
           this.simulationArea.latMin,
           this.simulationArea.lonMax,
           this.simulationArea.latMax
-        )
+        ),
+        tilingScheme: new Cesium.GeographicTilingScheme()
       })
 
       const newLayer = this.viewer.imageryLayers.addImageryProvider(provider)
       newLayer.alpha = 0.5
+      newLayer.hasAlphaChannel = true
 
       const oldLayer = this._imageryLayer
       this._imageryLayer = newLayer
@@ -632,6 +637,98 @@ _updateCesiumTexture() {
     } catch (e) {
       console.warn('_updateCesiumTexture error:', e)
     }
+  }
+
+  _computeBoundaryFromData(floatData, size, gl) {
+    if (!this.sourcePoint) return
+    const { lonMin, latMin, lonMax, latMax } = this.simulationArea
+
+    const threshold = 0.0001
+    const grid = []
+    for (let y = 0; y < size; y++) {
+      grid[y] = []
+      for (let x = 0; x < size; x++) {
+        const val = floatData[(y * size + x) * 4]
+        grid[y][x] = val > threshold
+      }
+    }
+
+    const contours = marchingSquares(grid, threshold, size, size)
+    if (contours.length === 0) {
+      this._cachedBoundary = []
+      return
+    }
+
+    let maxContour = contours[0]
+    for (const c of contours) {
+      if (c.length > maxContour.length) {
+        maxContour = c
+      }
+    }
+
+    const toLon = (px) => lonMin + (px / size) * (lonMax - lonMin)
+    const toLat = (py) => latMin + (py / size) * (latMax - latMin)
+    const coords = []
+    for (const [x, y] of maxContour) {
+      coords.push(toLon(x), toLat(y))
+    }
+
+    this._cachedBoundary = coords
+  }
+
+  _readPixelsAndExtract() {
+    const gl = this._getGL()
+    const size = this.gridSize + 1
+    const totalPixels = size * size
+    const tempFBO = gl.createFramebuffer()
+    gl.bindFramebuffer(gl.FRAMEBUFFER, tempFBO)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this._waterRead, 0)
+  
+    const floatData = new Float32Array(totalPixels * 4)
+    gl.readPixels(0, 0, size, size, gl.RGBA, gl.FLOAT, floatData)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.deleteFramebuffer(tempFBO)
+  
+    const { lonMin, latMin, lonMax, latMax } = this.simulationArea
+
+    const threshold = 0.0001
+    const grid = []
+    for (let y = 0; y < size; y++) {
+      grid[y] = []
+      for (let x = 0; x < size; x++) {
+        const val = floatData[(y * size + x) * 4]
+        grid[y][x] = val > threshold
+      }
+    }
+
+    const contours = marchingSquares(grid, threshold, size, size)
+    if (contours.length === 0) {
+      return []
+    }
+
+    let maxContour = contours[0]
+    for (const c of contours) {
+      if (c.length > maxContour.length) {
+        maxContour = c
+      }
+    }
+
+    const toLon = (px) => lonMin + (px / size) * (lonMax - lonMin)
+    const toLat = (py) => latMin + (py / size) * (latMax - latMin)
+    const coords = []
+    for (const [x, y] of maxContour) {
+      coords.push(toLon(x), toLat(y))
+    }
+
+    console.log('getFloodBoundary 提取完成, 轮廓点数:', coords.length / 2, '轮廓数:', contours.length)
+    return coords
+  }
+
+  getFloodBoundary() {
+    if (this._cachedBoundary.length >= 6) {
+      return this._cachedBoundary
+    }
+    return this._readPixelsAndExtract()
   }
 
   startSimulation() {
@@ -724,4 +821,74 @@ _updateCesiumTexture() {
     }
   }
 
+}
+
+function marchingSquares(grid, threshold, w, h) {
+  const segments = {}
+  const key = (x, y) => x + ',' + y
+
+  for (let y = 0; y < h - 1; y++) {
+    for (let x = 0; x < w - 1; x++) {
+      const tl = grid[y][x] ? 1 : 0
+      const tr = grid[y][x + 1] ? 1 : 0
+      const br = grid[y + 1][x + 1] ? 1 : 0
+      const bl = grid[y + 1][x] ? 1 : 0
+      const idx = tl | (tr << 1) | (br << 2) | (bl << 3)
+      if (idx === 0 || idx === 15) continue
+
+      const mx = x + 0.5
+      const my = y + 0.5
+
+      const edges = {
+        top: [mx, y],
+        right: [x + 1, my],
+        bottom: [mx, y + 1],
+        left: [x, my],
+      }
+
+      const segs = []
+      switch (idx) {
+        case 1: case 14: segs.push([edges.left, edges.top]); break
+        case 2: case 13: segs.push([edges.top, edges.right]); break
+        case 3: case 12: segs.push([edges.left, edges.right]); break
+        case 4: case 11: segs.push([edges.bottom, edges.right]); break
+        case 5: segs.push([edges.left, edges.top]); segs.push([edges.bottom, edges.right]); break
+        case 6: case 9:  segs.push([edges.top, edges.bottom]); break
+        case 7: case 8:  segs.push([edges.left, edges.bottom]); break
+        case 10: segs.push([edges.top, edges.right]); segs.push([edges.bottom, edges.left]); break
+      }
+
+      for (const [a, b] of segs) {
+        const ka = key(a[0], a[1])
+        const kb = key(b[0], b[1])
+        if (!segments[ka]) segments[ka] = []
+        segments[ka].push(kb)
+        if (!segments[kb]) segments[kb] = []
+        segments[kb].push(ka)
+      }
+    }
+  }
+
+  const visited = new Set()
+  const contours = []
+  for (const startKey of Object.keys(segments)) {
+    if (visited.has(startKey)) continue
+    const contour = []
+    const stack = [startKey]
+    while (stack.length > 0) {
+      const cur = stack.pop()
+      if (visited.has(cur)) continue
+      visited.add(cur)
+      const [cx, cy] = cur.split(',').map(Number)
+      contour.push([cx, cy])
+      for (const n of segments[cur] || []) {
+        if (!visited.has(n)) stack.push(n)
+      }
+    }
+    if (contour.length >= 6) {
+      contours.push(contour)
+    }
+  }
+
+  return contours
 }

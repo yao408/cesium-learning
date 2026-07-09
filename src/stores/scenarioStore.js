@@ -9,8 +9,14 @@ export const useScenarioStore = defineStore('scenario', () => {
   const blindSpots = ref(null)
   const floodLevel = ref(0)
   const floodSourcePoint = ref(null)
+  const floodPolygon = ref([])
+  const floodVolume = ref(100)
+  const flowSpeed = ref('medium')
+  const floodResults = ref(null)
   const earthquakeData = ref([])
+  const selectedEarthquake = ref(null)
   const vehiclePaths = ref([])
+  const dispatchCenter = ref(null)
 
   function setAOI(data) {
     aoi.value = data
@@ -36,12 +42,33 @@ export const useScenarioStore = defineStore('scenario', () => {
     if (source) floodSourcePoint.value = source
   }
 
+  function setFloodParams(volume, speed) {
+    floodVolume.value = volume
+    flowSpeed.value = speed
+  }
+
+  function setFloodPolygon(coords) {
+    floodPolygon.value = coords
+  }
+
+  function setFloodResults(results) {
+    floodResults.value = results
+  }
+
   function setEarthquakeData(data) {
     earthquakeData.value = data
   }
 
+  function setSelectedEarthquake(data) {
+    selectedEarthquake.value = data
+  }
+
   function setVehiclePaths(paths) {
     vehiclePaths.value = paths
+  }
+
+  function setDispatchCenter(data) {
+    dispatchCenter.value = data
   }
 
   function clearAll() {
@@ -52,14 +79,20 @@ export const useScenarioStore = defineStore('scenario', () => {
     blindSpots.value = null
     floodLevel.value = 0
     floodSourcePoint.value = null
+    floodPolygon.value = []
+    floodVolume.value = 100
+    flowSpeed.value = 'medium'
+    floodResults.value = null
     earthquakeData.value = []
+    selectedEarthquake.value = null
     vehiclePaths.value = []
+    dispatchCenter.value = null
   }
 
   const moduleStatus = computed(() => ({
     dataImport: !!(aoi.value || hazards.value.length),
     viewshed: !!(watchtowers.value.length),
-    flood: !!(floodSourcePoint.value && floodLevel.value > 0),
+    flood: !!(floodSourcePoint.value && floodPolygon.value.length > 0),
     earthquake: !!(earthquakeData.value.length),
     dispatch: !!(vehiclePaths.value.length),
   }))
@@ -78,15 +111,26 @@ export const useScenarioStore = defineStore('scenario', () => {
     blindSpots,
     floodLevel,
     floodSourcePoint,
+    floodPolygon,
+    floodVolume,
+    flowSpeed,
+    floodResults,
     earthquakeData,
+    selectedEarthquake,
     vehiclePaths,
+    dispatchCenter,
     setAOI,
     setHazards,
     setWatchtowers,
     setBlindSpots,
     setFloodLevel,
+    setFloodPolygon,
+    setFloodParams,
+    setFloodResults,
     setEarthquakeData,
+    setSelectedEarthquake,
     setVehiclePaths,
+    setDispatchCenter,
     clearAll,
     moduleStatus,
     activeCount,

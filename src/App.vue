@@ -12,36 +12,36 @@
         <div class="nav-dock">
           <span class="nav-brand">山地灾害监测</span>
           <span v-if="store.hasData" class="pipeline-dots">
-            <span class="pipe-dot" :class="{ on: store.moduleStatus.dataImport }" title="数据接入">①</span>
+            <span class="pipe-dot" :class="{ on: store.moduleStatus.earthquake }" title="地震监测">①</span>
             <span class="pipe-arrow">→</span>
-            <span class="pipe-dot" :class="{ on: store.moduleStatus.viewshed }" title="监测选址">②</span>
+            <span class="pipe-dot" :class="{ on: store.moduleStatus.dataImport }" title="数据接入">②</span>
             <span class="pipe-arrow">→</span>
-            <span class="pipe-dot" :class="{ on: store.moduleStatus.flood }" title="山洪分析">③</span>
+            <span class="pipe-dot" :class="{ on: store.moduleStatus.viewshed }" title="监测选址">③</span>
             <span class="pipe-arrow">→</span>
-            <span class="pipe-dot" :class="{ on: store.moduleStatus.earthquake }" title="地震监测">④</span>
+            <span class="pipe-dot" :class="{ on: store.moduleStatus.flood }" title="山洪分析">④</span>
             <span class="pipe-arrow">→</span>
             <span class="pipe-dot" :class="{ on: store.moduleStatus.dispatch }" title="应急调度">⑤</span>
           </span>
           <span class="nav-sep"></span>
-          <router-link to="/multi-vehicle" class="nav-link">
-            <span class="nav-icon">🚑</span>
-            <span class="nav-label">应急调度</span>
-          </router-link>
-          <router-link to="/flood" class="nav-link">
-            <span class="nav-icon">⛰️</span>
-            <span class="nav-label">山洪分析</span>
-          </router-link>
-          <router-link to="/viewshed" class="nav-link">
-            <span class="nav-icon">🔭</span>
-            <span class="nav-label">监测选址</span>
+          <router-link to="/earthquake" class="nav-link">
+            <span class="nav-icon">🌋</span>
+            <span class="nav-label">地震监测</span>
           </router-link>
           <router-link to="/data-import" class="nav-link">
             <span class="nav-icon">📡</span>
             <span class="nav-label">数据接入</span>
           </router-link>
-          <router-link to="/earthquake" class="nav-link">
-            <span class="nav-icon">🌋</span>
-            <span class="nav-label">地震监测</span>
+          <router-link to="/viewshed" class="nav-link">
+            <span class="nav-icon">🔭</span>
+            <span class="nav-label">监测选址</span>
+          </router-link>
+          <router-link to="/flood" class="nav-link">
+            <span class="nav-icon">⛰️</span>
+            <span class="nav-label">山洪分析</span>
+          </router-link>
+          <router-link to="/multi-vehicle" class="nav-link">
+            <span class="nav-icon">🚑</span>
+            <span class="nav-label">应急调度</span>
           </router-link>
         </div>
       </nav>
@@ -195,7 +195,7 @@ onMounted(() => {
   position: relative;
 }
 .nav-icon { font-size: 15px; }
-.nav-label { }
+.nav-label { margin-left: 6px; }
 
 .nav-link:hover {
   background: rgba(255, 255, 255, 0.28);
@@ -218,7 +218,8 @@ onMounted(() => {
   50% { box-shadow: 0 4px 28px rgba(45, 138, 78, 0.45), 0 0 0 8px rgba(45, 138, 78, 0.06); }
 }
 
-.router-view { flex: 1; overflow: hidden; position: relative; z-index: 1; }
+.router-view { flex: 1; overflow: hidden; position: relative; z-index: 1; pointer-events: none; }
+
 .globe-container {
   position: fixed; inset: 0; z-index: 0;
   width: 100vw; height: 100vh;

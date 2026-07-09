@@ -144,6 +144,20 @@
           🔥 火点: {{ viewshedStats.fireTotal }} | 可探测 {{ viewshedStats.fireDetected }} | 漏报 {{ viewshedStats.fireMissed }}
         </p>
       </div>
+
+      <div v-if="store.blindSpots" class="panel" style="background: rgba(245, 158, 11, 0.06); border-left: 3px solid #f59e0b;">
+        <h4 style="margin: 0 0 4px; font-size: 12px; color: #92400e;">🔭 盲区分析</h4>
+        <div style="display: flex; gap: 12px; font-size: 11px;">
+          <span>可见: <strong style="color: #2d8a4e;">{{ store.blindSpots.visibleKm }}km</strong></span>
+          <span>盲区: <strong style="color: #e74c3c;">{{ store.blindSpots.invisibleKm }}km</strong></span>
+          <span>瞭望塔: <strong>{{ (store.watchtowers || []).length }}座</strong></span>
+        </div>
+        <div v-if="blindVillageList.length" style="margin-top: 6px; font-size: 11px;">
+          <span style="color: #e74c3c;">⚠️ 盲区村庄: </span>
+          <span v-for="(v, i) in blindVillageList" :key="v">{{ v }}{{ i < blindVillageList.length - 1 ? '、' : '' }}</span>
+        </div>
+        <p v-else style="margin-top: 4px; font-size: 11px; color: #2d8a4e;">✅ 所有村庄均在瞭望塔覆盖范围内</p>
+      </div>
     </div>
     </aside>
     <button class="collapse-toggle" @click="collapsed = !collapsed" :title="collapsed ? '展开面板' : '收起面板'">
@@ -159,6 +173,7 @@ import * as Cesium from 'cesium'
 import * as echarts from 'echarts'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
+import { haversineDistance } from '../utils/geo.js'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
@@ -205,6 +220,8 @@ let wallEntities = []
 let firePointEntities = []
 let losEntities = []
 let lockCameraListener = null
+let watchtowerMarkers = []
+let _watchtowerSyncHandler = null
 
 const activeObserverPoint = computed(() => {
   if (observerPoints.value.length === 0) return null
@@ -214,6 +231,23 @@ const activeObserverPoint = computed(() => {
 const canRunAnalysis = computed(() => {
   if (analysisMode.value === 'los') return activeObserverPoint.value && targetPoint.value
   return activeObserverPoint.value
+})
+
+const blindVillageList = computed(() => {
+  const villages = store.hazards || []
+  const towers = store.watchtowers || []
+  if (!towers.length) return []
+  return villages.filter(v => {
+    const vLon = v.lng ?? v.lon
+    const vLat = v.lat
+    if (vLon == null || vLat == null) return false
+    return towers.every(t => {
+      const tLon = t.lng ?? t.lon
+      const tLat = t.lat
+      if (tLon == null || tLat == null) return true
+      return haversineDistance(vLat, vLon, tLat, tLon) > 5000
+    })
+  }).map(v => v.name || '未命名')
 })
 
 function updateChart() {
@@ -244,9 +278,6 @@ function updateChart() {
 
 function clearAnalysis() {
   loading.value = false
-  observerEntities.forEach(e => viewer.entities.remove(e))
-  observerEntities = []
-  if (targetEntity) { viewer.entities.remove(targetEntity); targetEntity = null }
   viewshedEntities.forEach(e => viewer.entities.remove(e))
   viewshedEntities = []
   wallEntities.forEach(e => viewer.entities.remove(e))
@@ -265,13 +296,21 @@ function clearAnalysis() {
 
 function clearAllPoints() {
   clearAnalysis()
+  observerEntities.forEach(m => {
+    m.el.remove()
+    const wmIdx = watchtowerMarkers.indexOf(m)
+    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
+  })
+  observerEntities = []
   observerPoints.value = []
   activeObserverIdx.value = 0
 }
 
 function removeObserverPoint(idx) {
   if (observerEntities[idx]) {
-    viewer.entities.remove(observerEntities[idx])
+    observerEntities[idx].el.remove()
+    const wmIdx = watchtowerMarkers.indexOf(observerEntities[idx])
+    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
     observerEntities.splice(idx, 1)
   }
   observerPoints.value.splice(idx, 1)
@@ -406,26 +445,18 @@ async function runAllViewsheds(points) {
 }
 
 function createObserverMarker(point, idx) {
-  if (observerEntities[idx]) viewer.entities.remove(observerEntities[idx])
-  const groundH = point.groundHeight || 0
-  const color = Cesium.Color.fromCssColorString(point.color || COLORS[idx % COLORS.length])
-  observerEntities[idx] = viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(point.lon, point.lat, groundH),
-    point: {
-      pixelSize: 12,
-      color: color,
-      outlineColor: Cesium.Color.WHITE,
-      outlineWidth: 2,
-      heightReference: Cesium.HeightReference.NONE,
-    },
-    label: {
-      text: point.name || `塔${idx + 1}`,
-      font: '12px sans-serif',
-      pixelOffset: new Cesium.Cartesian2(0, -20),
-      showBackground: true,
-      backgroundColor: color,
-    },
-  })
+  if (observerEntities[idx]) {
+    observerEntities[idx].el.remove()
+    const wmIdx = watchtowerMarkers.indexOf(observerEntities[idx])
+    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
+  }
+  const el = document.createElement('div')
+  el.className = 'village-marker'
+  el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (point.name || '') + '</span>'
+  viewer.container.appendChild(el)
+  const marker = { el, position: Cesium.Cartesian3.fromDegrees(point.lon, point.lat) }
+  observerEntities[idx] = marker
+  watchtowerMarkers.push(marker)
 }
 
 function createTargetMarker(lon, lat) {
@@ -465,17 +496,11 @@ async function getHeightAtPosition(lon, lat) {
 getHeightAtPosition._cache = null
 
 async function getPickInfo(click) {
-  const picked = viewer.scene.pick(click.position)
-  let cartesian
-  if (Cesium.defined(picked) && Cesium.defined(picked.position)) {
-    cartesian = picked.position
-  } else {
+  let cartesian = viewer.scene.pickPosition(click.position)
+  if (!Cesium.defined(cartesian)) {
     const ray = viewer.camera.getPickRay(click.position)
     if (Cesium.defined(ray)) {
       try { cartesian = viewer.scene.globe.pick(ray, viewer.scene) } catch (e) {}
-    }
-    if (!Cesium.defined(cartesian)) {
-      cartesian = viewer.scene.pickPosition(click.position)
     }
   }
   if (!Cesium.defined(cartesian)) return null
@@ -921,6 +946,27 @@ function handleKeyDown(e) {
   }
 }
 
+function syncWatchtowerMarkers() {
+  const v = viewerStore.viewer
+  if (!v) return
+  watchtowerMarkers.forEach(m => {
+    const sp = v.scene.cartesianToCanvasCoordinates(m.position)
+    if (sp) {
+      m.el.style.left = sp.x + 'px'
+      m.el.style.top = sp.y + 'px'
+      m.el.style.display = 'flex'
+    } else {
+      m.el.style.display = 'none'
+    }
+  })
+}
+
+function clearWatchtowerMarkers() {
+  watchtowerMarkers.forEach(m => m.el.remove())
+  watchtowerMarkers = []
+  if (_watchtowerSyncHandler) { _watchtowerSyncHandler(); _watchtowerSyncHandler = null }
+}
+
 onMounted(() => {
   viewer = viewerStore.viewer
   if (!viewer) return
@@ -929,30 +975,69 @@ onMounted(() => {
       Cesium.CesiumTerrainProvider.fromIonAssetId(1),
     ),
   )
-
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(117.10, 36.25, 20000),
-    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
-  })
+if (store.aoi) {
+    const { minLat, maxLat, minLng, maxLng } = store.aoi
+    viewer.camera.flyTo({
+      destination: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
+      duration: 1,
+    })
+  } else if (store.selectedEarthquake) {
+    const { lon, lat } = store.selectedEarthquake
+    viewer.camera.flyTo({
+      destination: Cesium.Rectangle.fromDegrees(lon - 0.3, lat - 0.3, lon + 0.3, lat + 0.3),
+      duration: 1,
+    })
+  } else {
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(117.10, 36.25, 20000),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
+    })
+  }
 
   hoverHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   hoverHandler.setInputAction(handleMouseMove, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
   document.addEventListener('keydown', handleKeyDown)
+
+  if (store.watchtowers && store.watchtowers.length > 0) {
+    store.watchtowers.forEach((t, idx) => {
+      const el = document.createElement('div')
+      el.className = 'village-marker'
+      el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (t.name || '') + '</span>'
+      viewer.container.appendChild(el)
+      watchtowerMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(t.lng ?? t.lon, t.lat) })
+      observerPoints.value.push({
+        lon: t.lng ?? t.lon,
+        lat: t.lat,
+        name: t.name,
+        groundHeight: t.groundHeight ?? t.elevation ?? 0,
+        color: COLORS[idx % COLORS.length],
+      })
+    })
+  }
+  if (store.hazards && store.hazards.length > 0) {
+    store.hazards.forEach(v => {
+      const el = document.createElement('div')
+      el.className = 'village-marker'
+      el.innerHTML = '<img src="./icons/village.svg" class="village-icon" alt="" /><span class="village-label">' + (v.name || '') + '</span>'
+      viewer.container.appendChild(el)
+      watchtowerMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(v.lng ?? v.lon, v.lat) })
+    })
+  }
+  if (watchtowerMarkers.length > 0) {
+    _watchtowerSyncHandler = viewer.scene.postRender.addEventListener(syncWatchtowerMarkers)
+  }
 })
 
 onBeforeUnmount(() => {
   if (clickHandler) clickHandler.destroy()
   if (hoverHandler) hoverHandler.destroy()
   if (chartInstance) chartInstance.dispose()
-  if (viewer) {
-    observerEntities.forEach(e => viewer.entities.remove(e))
-    viewshedEntities.forEach(e => viewer.entities.remove(e))
-    wallEntities.forEach(e => viewer.entities.remove(e))
-    firePointEntities.forEach(e => viewer.entities.remove(e))
-    losEntities.forEach(e => viewer.entities.remove(e))
-    if (targetEntity) viewer.entities.remove(targetEntity)
-  }
   document.removeEventListener('keydown', handleKeyDown)
+  clearAnalysis()
+  clearWatchtowerMarkers()
+  clickHandler = null
+  hoverHandler = null
+  chartInstance = null
   viewer = null
 })
 </script>
@@ -966,6 +1051,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: #3d3929;
   overflow: hidden;
+  pointer-events: none;
 }
 
 .collapse-toggle {
@@ -974,6 +1060,7 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translateY(-50%);
   z-index: 110;
+  pointer-events: auto;
   width: 22px;
   height: 48px;
   border: none;
@@ -1004,6 +1091,7 @@ onBeforeUnmount(() => {
   bottom: 12px;
   width: 290px;
   z-index: 100;
+  pointer-events: auto;
   overflow: hidden;
   padding: 0;
   background: rgba(254, 252, 245, 0.88);
@@ -1326,5 +1414,30 @@ onBeforeUnmount(() => {
 
 .hover-panel {
   background: rgba(254, 252, 245, 0.7) !important;
+}
+</style>
+
+<style>
+.village-marker {
+  position: absolute;
+  pointer-events: none;
+  z-index: 200;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.village-icon {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+.village-label {
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  text-shadow: 0 0 4px #000, 0 0 4px #000;
+  white-space: nowrap;
 }
 </style>

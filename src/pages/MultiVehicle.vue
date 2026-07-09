@@ -73,6 +73,8 @@ import { useViewerStore } from '../stores/viewerStore.js'
   let drawingEntities = []
   let _drawingMarkers = []
   let alertTimer = null
+let siteMarkers = []
+let _siteSyncHandler = null
   
   // ==================== 车辆槽位管理 ====================
   
@@ -100,12 +102,17 @@ import { useViewerStore } from '../stores/viewerStore.js'
   const showAlert = ref(false)
   const alertType = ref('info')
   const alertMessage = ref('')
+  const roadBlocks = ref([])
+  const blockedRouteSegments = ref([])
+  let roadBlockPrimitives = []
+  let blockedRoutePrimitives = []
   
   let vehicleHeading = 0
   
   // 多车管理
   const vehicleSlots = ref([])
   const activeSlotId = ref(0)
+  const showInfoPanel = ref(false)
   let nextSlotId = 1
   
   function initDefaultSlot() {
@@ -115,7 +122,169 @@ import { useViewerStore } from '../stores/viewerStore.js'
       nextSlotId++
     }
   }
-  
+
+  function isPointInFlood(lat, lng) {
+  if (!store.floodSourcePoint || store.floodLevel <= 0) return false
+  const { lon, lat: fLat } = store.floodSourcePoint
+  const radius = store.floodLevel / 15000
+  const dLat = lat - fLat
+  const dLon = lng - lon
+  return Math.sqrt(dLat * dLat + dLon * dLon) < radius
+}
+
+function getFloodDetour(path) {
+  if (!store.floodSourcePoint || store.floodLevel <= 0) return null
+  const fc = store.floodSourcePoint
+  const radius = store.floodLevel / 15000
+  for (let i = 0; i < path.length - 1; i++) {
+    const [lat1, lng1] = path[i]
+    const [lat2, lng2] = path[i + 1]
+    if (isPointInFlood(lat1, lng1) || isPointInFlood(lat2, lng2)) {
+      const midLat = (lat1 + lat2) / 2
+      const midLng = (lng1 + lng2) / 2
+      const dx = midLng - fc.lon
+      const dy = midLat - fc.lat
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001
+      return { lat: midLat + (dy / dist) * radius * 1.8, lng: midLng + (dx / dist) * radius * 1.8 }
+    }
+  }
+  return null
+}
+
+function getBlockDetour(path) {
+  const blocks = roadBlocks.value.length > 0 ? roadBlocks.value : getDefaultRoadBlocks()
+  if (blocks.length === 0) return null
+  for (let i = 0; i < path.length; i++) {
+    const [lat, lng] = path[i]
+    for (const block of blocks) {
+      for (const coord of block.coords) {
+        const dist = haversineDistance(lat, lng, coord[1], coord[0]) / 1000
+        if (dist < 0.5) {
+          const dx = lng - coord[0]
+          const dy = lat - coord[1]
+          const d = Math.sqrt(dx * dx + dy * dy) || 0.0001
+          return { lat: lat + (dy / d) * 0.02, lng: lng + (dx / d) * 0.02 }
+        }
+      }
+    }
+  }
+  return null
+}
+
+async function autoLoadDispatchScenario() {
+  if (!store.dispatchCenter || !store.hazards || store.hazards.length < 4) return
+
+  const dc = store.dispatchCenter
+  const dcLat = dc.lat
+  const dcLng = dc.lng
+  const hazards = store.hazards
+
+  const supplyCities = [
+    { name: '康定', lat: 30.05, lng: 101.96, color: '#e74c3c' },
+    { name: '雅安', lat: 29.98, lng: 103.01, color: '#f39c12' },
+    { name: '成都', lat: 30.57, lng: 104.07, color: '#27ae60' },
+  ]
+
+  // 清除旧 slot
+  vehicleSlots.value.forEach(s => {
+    if (s.entity) viewer.entities.remove(s.entity)
+    if (s.pathCorridor) { viewer.entities.remove(s.pathCorridor); s.pathCorridor = null }
+    if (s.pathGround) { viewer.entities.remove(s.pathGround); s.pathGround = null }
+    if (s.pathOutlineEntity) { viewer.entities.remove(s.pathOutlineEntity); s.pathOutlineEntity = null }
+    if (s.pathStartMarker) { viewer.entities.remove(s.pathStartMarker); s.pathStartMarker = null }
+  })
+  vehicleSlots.value = []
+
+  // 3 条城际物资路线 —— 用 OSRM 真实道路
+  for (const city of supplyCities) {
+    const routes = await fetchOSRMRoutes(
+      { lat: city.lat, lng: city.lng },
+      { lat: dcLat, lng: dcLng }
+    )
+    let path = routes.length > 0 ? routes[0].path : [[city.lat, city.lng], [dcLat, dcLng]]
+
+    // 洪水绕行
+    const detour = getBlockDetour(path) || getFloodDetour(path)
+    if (detour) {
+      const retry = await fetchOSRMRoutes(
+        { lat: city.lat, lng: city.lng },
+        { lat: dcLat, lng: dcLng },
+        detour
+      )
+      if (retry.length > 0) path = retry[0].path
+    }
+
+    const slot = {
+      id: nextSlotId, name: `${city.name} → 指挥中心`, color: city.color,
+      path, entity: null, positionProperty: null, heading: 0, progress: 0,
+      pathCorridor: null, pathGround: null, pathStartMarker: null,
+      pathWidth: 5, pathOpacity: 0.7, pathStyle: 'solid',
+      pathOutlineWidth: 2, pathOutlineOpacity: 0.9, pathOutlineEntity: null,
+    }
+    vehicleSlots.value.push(slot)
+    nextSlotId++
+  }
+
+  // 西线配送：指挥中心 → 村庄1 → 村庄2
+  const westVillages = hazards.slice(0, 2)
+  if (westVillages.length >= 2) {
+    const routes = await fetchOSRMRoutes(
+      { lat: dcLat, lng: dcLng },
+      { lat: westVillages[1].lat, lng: westVillages[1].lng }
+    )
+    let path = routes.length > 0 ? routes[0].path : [[dcLat, dcLng], [westVillages[1].lat, westVillages[1].lng]]
+    const detour = getBlockDetour(path) || getFloodDetour(path)
+    if (detour) {
+      const retry = await fetchOSRMRoutes(
+        { lat: dcLat, lng: dcLng },
+        { lat: westVillages[1].lat, lng: westVillages[1].lng },
+        detour
+      )
+      if (retry.length > 0) path = retry[0].path
+    }
+    const slot = {
+      id: nextSlotId, name: '西线配送', color: '#8e44ad',
+      path, entity: null, positionProperty: null, heading: 0, progress: 0,
+      pathCorridor: null, pathGround: null, pathStartMarker: null,
+      pathWidth: 4, pathOpacity: 0.6, pathStyle: 'solid',
+      pathOutlineWidth: 1, pathOutlineOpacity: 0.8, pathOutlineEntity: null,
+    }
+    vehicleSlots.value.push(slot)
+    nextSlotId++
+  }
+
+  // 东线配送：指挥中心 → 村庄3 → 村庄4
+  const eastVillages = hazards.slice(2, 4)
+  if (eastVillages.length >= 2) {
+    const routes = await fetchOSRMRoutes(
+      { lat: dcLat, lng: dcLng },
+      { lat: eastVillages[1].lat, lng: eastVillages[1].lng }
+    )
+    let path = routes.length > 0 ? routes[0].path : [[dcLat, dcLng], [eastVillages[1].lat, eastVillages[1].lng]]
+    const detour = getBlockDetour(path) || getFloodDetour(path)
+    if (detour) {
+      const retry = await fetchOSRMRoutes(
+        { lat: dcLat, lng: dcLng },
+        { lat: eastVillages[1].lat, lng: eastVillages[1].lng },
+        detour
+      )
+      if (retry.length > 0) path = retry[0].path
+    }
+    const slot = {
+      id: nextSlotId, name: '东线配送', color: '#e67e22',
+      path, entity: null, positionProperty: null, heading: 0, progress: 0,
+      pathCorridor: null, pathGround: null, pathStartMarker: null,
+      pathWidth: 4, pathOpacity: 0.6, pathStyle: 'solid',
+      pathOutlineWidth: 1, pathOutlineOpacity: 0.8, pathOutlineEntity: null,
+    }
+    vehicleSlots.value.push(slot)
+    nextSlotId++
+  }
+
+  activeSlotId.value = vehicleSlots.value[0]?.id || 0
+  userPath.value = [...(vehicleSlots.value[0]?.path || [])]
+  vehicleSlots.value.forEach(s => drawSlotPath(s))
+}
   function addVehicleSlot() {
     const idx = vehicleSlots.value.length
     const colors = ['#1e3a8a', '#2563eb', '#0f172a', '#1e40af', '#3b82f6']
@@ -207,7 +376,28 @@ import { useViewerStore } from '../stores/viewerStore.js'
     alertMessage.value = msg; alertType.value = type; showAlert.value = true
     alertTimer = setTimeout(() => { showAlert.value = false; alertTimer = null }, 3000)
   }
-  
+
+  function syncSiteMarkers() {
+    const v = viewerStore.viewer
+    if (!v) return
+    siteMarkers.forEach(m => {
+      const sp = v.scene.cartesianToCanvasCoordinates(m.position)
+      if (sp) {
+        m.el.style.left = sp.x + 'px'
+        m.el.style.top = sp.y + 'px'
+        m.el.style.display = 'flex'
+      } else {
+        m.el.style.display = 'none'
+      }
+    })
+  }
+
+  function clearSiteMarkers() {
+    siteMarkers.forEach(m => m.el.remove())
+    siteMarkers = []
+    if (_siteSyncHandler) { _siteSyncHandler(); _siteSyncHandler = null }
+  }
+
   // ==================== 初始化 ====================
   onMounted(() => {
     viewer = viewerStore.viewer
@@ -219,12 +409,69 @@ import { useViewerStore } from '../stores/viewerStore.js'
     viewer.scene.globe.showGroundAtmosphere = true
     viewer.shadows = true
     viewer.scene.msaaSamples = 4
+    // 读取洪水数据，画浅蓝色透明多边形
+    if (store.floodPolygon && store.floodPolygon.length > 0) {
+  viewer.entities.add({
+    polygon: {
+      hierarchy: Cesium.Cartesian3.fromDegreesArray(store.floodPolygon),
+      material: Cesium.Color.fromCssColorString('#3380ff').withAlpha(0.5),
+      clampToGround: true,
+      zIndex: 10,
+    },
+    name: '洪水淹没范围',
+  })
+} else if (store.floodSourcePoint && store.floodLevel > 0) {
+      const { lon, lat } = store.floodSourcePoint
+      const radius = store.floodLevel / 15000
+      const numPts = 64
+      const coords = []
+      for (let i = 0; i <= numPts; i++) {
+        const angle = (i / numPts) * Math.PI * 2
+        coords.push(lon + radius * Math.cos(angle))
+        coords.push(lat + radius * Math.sin(angle))
+      }
+      viewer.entities.add({
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray(coords),
+          material: Cesium.Color.fromCssColorString('#3380ff').withAlpha(0.5),
+          clampToGround: true,
+          zIndex: 10,
+        },
+        name: '洪水淹没范围',
+      })
+    }
+    viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(102.2, 29.9),
+      billboard: {
+        image: '/icons/marker.svg',
+        width: 32,
+        height: 32,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+      name: '测试标记',
+    })
+
     viewer.scene.screenSpaceCameraController.minimumZoomDistance = 50
     viewer.scene.renderError.addEventListener(() => {
       console.warn('Cesium render error - check corridor/groundPrimitive entities')
     })
 
-    viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
+    if (store.aoi) {
+      const { minLat, maxLat, minLng, maxLng } = store.aoi
+      viewer.camera.flyTo({
+        destination: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
+        duration: 1,
+      })
+    } else if (store.selectedEarthquake) {
+      const { lon, lat } = store.selectedEarthquake
+      viewer.camera.flyTo({
+        destination: Cesium.Rectangle.fromDegrees(lon - 0.3, lat - 0.3, lon + 0.3, lat + 0.3),
+        duration: 1,
+      })
+    } else {
+      viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
+    }
 
     viewer.scene.screenSpaceCameraController.tiltEventTypes = [
       Cesium.CameraEventType.RIGHT_DRAG,
@@ -275,17 +522,48 @@ import { useViewerStore } from '../stores/viewerStore.js'
     canvas.addEventListener('touchstart', () => { cameraLocked.value = false })
     drawPathLine()
     initDefaultSlot()
+    drawRoadBlocks()
+    autoLoadDispatchScenario() 
     clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+
+    if (store.watchtowers && store.watchtowers.length > 0) {
+      store.watchtowers.forEach(t => {
+        const el = document.createElement('div')
+        el.className = 'village-marker'
+        el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (t.name || '') + '</span>'
+        viewer.container.appendChild(el)
+        siteMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(t.lng ?? t.lon, t.lat) })
+      })
+    }
+    if (store.hazards && store.hazards.length > 0) {
+      store.hazards.forEach(v => {
+        const el = document.createElement('div')
+        el.className = 'village-marker'
+        el.innerHTML = '<img src="./icons/village.svg" class="village-icon" alt="" /><span class="village-label">' + (v.name || '') + '</span>'
+        viewer.container.appendChild(el)
+        siteMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(v.lng ?? v.lon, v.lat) })
+      })
+    }
+    if (siteMarkers.length > 0) {
+      _siteSyncHandler = viewer.scene.postRender.addEventListener(syncSiteMarkers)
+    }
   })
   
   onBeforeUnmount(() => {
     stopSimulation()
     if (mouseHandler) mouseHandler.destroy()
+    clearRoadBlocks()
+    clearBlockedRoute()
+    // 清理洪水实体
+    viewer.entities.values
+    .filter(e => e.name === '洪水淹没范围')
+    .forEach(e => viewer.entities.remove(e))
     if (viewer) {
       viewer.scene.postRender.removeEventListener(onPostRender)
       if (cameraMoveEndListener) viewer.camera.moveEnd.removeEventListener(cameraMoveEndListener)
-      viewer.entities.removeAll()
     }
+    mouseHandler = null
+    clearSiteMarkers()
     viewer = null
   })
   
@@ -457,6 +735,150 @@ import { useViewerStore } from '../stores/viewerStore.js'
   
   function drawPathLine() {
     vehicleSlots.value.forEach(slot => drawSlotPath(slot))
+  }
+
+  function getDefaultRoadBlocks() {
+    if (!store.aoi) return []
+    const { minLat, maxLat, minLng, maxLng } = store.aoi
+    const midLat = (minLat + maxLat) / 2
+    const midLng = (minLng + maxLng) / 2
+    const range = Math.max(maxLat - minLat, maxLng - minLng)
+    const factor = range * 0.15
+    return [
+      {
+        name: '省道S211塌方段',
+        coords: [
+          [midLng - factor * 0.3, midLat + factor * 0.1],
+          [midLng - factor * 0.1, midLat + factor * 0.25],
+          [midLng + factor * 0.05, midLat + factor * 0.35],
+        ],
+      },
+      {
+        name: '大渡河桥损毁',
+        coords: [
+          [midLng + factor * 0.1, midLat - factor * 0.05],
+          [midLng + factor * 0.25, midLat - factor * 0.15],
+        ],
+      },
+      {
+        name: '乡道Y012滑坡',
+        coords: [
+          [midLng - factor * 0.2, midLat - factor * 0.2],
+          [midLng - factor * 0.1, midLat - factor * 0.35],
+          [midLng - factor * 0.05, midLat - factor * 0.45],
+        ],
+      },
+    ]
+  }
+
+  function drawRoadBlocks() {
+    clearRoadBlocks()
+    if (!viewer) return
+    let blocks = roadBlocks.value
+    if (blocks.length === 0) {
+      blocks = getDefaultRoadBlocks()
+      roadBlocks.value = blocks
+    }
+    blocks.forEach((block) => {
+      const positions = Cesium.Cartesian3.fromDegreesArray(block.coords.flat())
+      const instances = block.coords.map((_, i) => {
+        if (i === block.coords.length - 1) return null
+        const seg = [block.coords[i][0], block.coords[i][1], block.coords[i + 1][0], block.coords[i + 1][1]]
+        return new Cesium.GeometryInstance({
+          geometry: new Cesium.GroundPolylineGeometry({
+            positions: Cesium.Cartesian3.fromDegreesArray(seg),
+            width: 5,
+          }),
+        })
+      }).filter(Boolean)
+      instances.forEach(inst => {
+        const prim = new Cesium.GroundPolylinePrimitive({
+          geometryInstances: [inst],
+          appearance: new Cesium.PolylineMaterialAppearance({
+            material: Cesium.Material.fromType('PolylineDash', {
+              color: Cesium.Color.fromCssColorString('#dc2626'),
+              dashLength: 16,
+            }),
+          }),
+        })
+        viewer.scene.primitives.add(prim)
+        roadBlockPrimitives.push(prim)
+      })
+    })
+  }
+
+  function clearRoadBlocks() {
+    roadBlockPrimitives.forEach(p => viewer.scene.primitives.remove(p))
+    roadBlockPrimitives = []
+  }
+
+  function clearBlockedRoute() {
+    blockedRoutePrimitives.forEach(p => viewer.scene.primitives.remove(p))
+    blockedRoutePrimitives = []
+    blockedRouteSegments.value = []
+  }
+
+  function isPointNearBlock(lat, lng, thresholdKm = 0.5) {
+    const blocks = roadBlocks.value.length > 0 ? roadBlocks.value : getDefaultRoadBlocks()
+    for (const block of blocks) {
+      for (const coord of block.coords) {
+        const dist = haversineDistance(lat, lng, coord[1], coord[0]) / 1000
+        if (dist < thresholdKm) return true
+      }
+    }
+    return false
+  }
+
+  function checkRouteBlocked(path) {
+    const blocks = roadBlocks.value.length > 0 ? roadBlocks.value : getDefaultRoadBlocks()
+    const blockedSegments = []
+    let inBlock = false
+    let blockStart = null
+    let blockName = ''
+    for (let i = 0; i < path.length; i++) {
+      const [lat, lng] = path[i]
+      const near = isPointNearBlock(lat, lng, 0.5)
+      if (near && !inBlock) {
+        inBlock = true
+        blockStart = i
+        const block = blocks.find(b => b.coords.some(c => haversineDistance(lat, lng, c[1], c[0]) / 1000 < 0.5))
+        blockName = block ? block.name : '阻断路段'
+      } else if (!near && inBlock) {
+        blockedSegments.push({ start: blockStart, end: i - 1, name: blockName })
+        inBlock = false
+        blockStart = null
+      }
+    }
+    if (inBlock) {
+      blockedSegments.push({ start: blockStart, end: path.length - 1, name: blockName })
+    }
+    blockedRouteSegments.value = blockedSegments
+    return blockedSegments
+  }
+
+  function drawBlockedRouteMarkers(path) {
+    clearBlockedRoute()
+    const blocked = checkRouteBlocked(path)
+    blocked.forEach(seg => {
+      const segPath = path.slice(seg.start, seg.end + 1)
+      if (segPath.length < 2) return
+      const gcjPath = segPath.map(([lat, lng]) => wgs84ToGCJ02(lat, lng))
+      const positions = Cesium.Cartesian3.fromDegreesArray(gcjPath.flatMap(({ lat, lng }) => [lng, lat]))
+      const inst = new Cesium.GeometryInstance({
+        geometry: new Cesium.GroundPolylineGeometry({ positions, width: 6 }),
+      })
+      const prim = new Cesium.GroundPolylinePrimitive({
+        geometryInstances: [inst],
+        appearance: new Cesium.PolylineMaterialAppearance({
+          material: Cesium.Material.fromType('PolylineDash', {
+            color: Cesium.Color.fromCssColorString('#dc2626'),
+            dashLength: 12,
+          }),
+        }),
+      })
+      viewer.scene.primitives.add(prim)
+      blockedRoutePrimitives.push(prim)
+    })
   }
   
   async function buildPositionProperty(path) {
@@ -714,22 +1136,25 @@ import { useViewerStore } from '../stores/viewerStore.js'
   }
   
   // ==================== OSRM 路径规划 ====================
-  async function fetchOSRMRoutes(start, end) {
-    const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson&alternatives=true&steps=true`
-    try {
-      const res = await fetch(url)
-      const data = await res.json()
-      if (data.code !== 'Ok' || !data.routes) throw new Error('OSRM 无可用路线')
-      return data.routes.map((r) => ({
-        distance: r.distance,
-        duration: r.duration,
-        path: r.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-      }))
-    } catch (e) {
-      showPopupAlert('⚠️ 路径规划失败: ' + e.message, 'warning')
-      return []
-    }
+  async function fetchOSRMRoutes(start, end, via) {
+  const waypoints = via
+    ? `${start.lng},${start.lat};${via.lng},${via.lat};${end.lng},${end.lat}`
+    : `${start.lng},${start.lat};${end.lng},${end.lat}`
+  const url = `https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&alternatives=true&steps=true`
+  try {
+    const res = await fetch(url)
+    const data = await res.json()
+    if (data.code !== 'Ok' || !data.routes) throw new Error('OSRM 无可用路线')
+    return data.routes.map((r) => ({
+      distance: r.distance,
+      duration: r.duration,
+      path: r.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+    }))
+  } catch (e) {
+    showPopupAlert('⚠️ 路径规划失败: ' + e.message, 'warning')
+    return []
   }
+}
   
   function startRoutePlanning() {
     routeMode.value = true
@@ -758,6 +1183,7 @@ import { useViewerStore } from '../stores/viewerStore.js'
     if (route) {
       userPath.value = route.path
       drawPathLine()
+      drawBlockedRouteMarkers(route.path)
     }
   }
   
@@ -773,7 +1199,13 @@ import { useViewerStore } from '../stores/viewerStore.js'
     selectedRoute.value = 0
     updateClickHandler()
     drawPathLine()
-    showPopupAlert(`✅ 已选择路线 ${((route.distance || 0) / 1000).toFixed(1)}km`, 'info')
+    drawBlockedRouteMarkers(route.path)
+    const blocked = checkRouteBlocked(route.path)
+    if (blocked.length > 0) {
+      showPopupAlert(`⚠️ ${blocked.length} 处路段阻断: ${blocked.map(b => b.name).join('、')}`, 'warning')
+    } else {
+      showPopupAlert(`✅ 已选择路线 ${((route.distance || 0) / 1000).toFixed(1)}km`, 'info')
+    }
   }
   
   function handleMapClick(position) {
@@ -878,9 +1310,9 @@ import { useViewerStore } from '../stores/viewerStore.js'
   
   <style scoped>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  .multi-vehicle-page { display: flex; flex-direction: column; height: 100%; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: transparent; color: #2a3d40; }
+  .multi-vehicle-page { display: flex; flex-direction: column; height: 100%; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: transparent; color: #2a3d40; pointer-events: none; }
   .main-container { display: flex; flex: 1; overflow: hidden; position: relative; }
-  #map { flex: 1; min-width: 0; z-index: 1; position: relative; }
+  #map { flex: 1; min-width: 0; z-index: 1; position: relative; pointer-events: none; }
   .cesium-container { width: 100%; height: 100%; }
   .cesium-container :deep(.cesium-viewer),
   .cesium-container :deep(.cesium-widget),
@@ -894,3 +1326,28 @@ import { useViewerStore } from '../stores/viewerStore.js'
   .btn-sm { padding: 4px 10px; font-size: 11px; }
   @media (max-width: 700px) { .main-container { flex-direction: column; } #map { height: 400px; flex: none; } }
   </style>
+
+<style>
+.village-marker {
+  position: absolute;
+  pointer-events: none;
+  z-index: 200;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.village-icon {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+.village-label {
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  text-shadow: 0 0 4px #000, 0 0 4px #000;
+  white-space: nowrap;
+}
+</style>

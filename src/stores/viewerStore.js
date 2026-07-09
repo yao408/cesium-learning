@@ -32,6 +32,7 @@ export const useViewerStore = defineStore('viewer', () => {
     v.scene.skyAtmosphere.show = false
     v.scene.globe.depthTestAgainstTerrain = true
     v.scene.screenSpaceCameraController.minimumZoomDistance = 100
+    v.scene.postProcessStages.fxaa.enabled = false
 
     v.scene.setTerrain(
       new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1))

@@ -31,6 +31,23 @@
       </div>
 
       <div class="panel">
+        <h4>📐 坐标画AOI</h4>
+        <div class="coord-row">
+          <span>北纬</span><input v-model="aoi.maxLat" type="number" step="0.01" />
+          <span>东经</span><input v-model="aoi.maxLng" type="number" step="0.01" />
+        </div>
+        <div class="coord-row">
+          <span>南纬</span><input v-model="aoi.minLat" type="number" step="0.01" />
+          <span>西经</span><input v-model="aoi.minLng" type="number" step="0.01" />
+        </div>
+        <div class="btn-row" style="margin-top:4px">
+          <button @click="drawAOI" class="btn btn-sm">✅ 绘制AOI</button>
+          <button @click="clearAOI" class="btn btn-danger btn-sm">清除</button>
+        </div>
+        <p class="hint">点击地震监测中的地震点自动生成周边场景</p>
+      </div>
+
+      <div class="panel">
         <h4 class="collapsible" @click="toggleSection('model')">🏗️ 3D 模型 (glTF) <span class="collapse-arrow">{{ sections.model ? '▶' : '▼' }}</span></h4>
         <div v-show="!sections.model">
           <div class="btn-row">
@@ -102,7 +119,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as Cesium from 'cesium'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
@@ -129,8 +146,66 @@ const drawInfoList = ref([])
 const geojsonInput = ref(null)
 const modelInput = ref(null)
 
+const aoi = reactive({
+  minLat: 29.3, maxLat: 29.9, minLng: 101.8, maxLng: 102.4
+})
+let aoiEntities = []
 let viewer = null
+
+function drawAOI() {
+  if (!viewer) return
+  clearAOI()
+  const { minLat, maxLat, minLng, maxLng } = aoi
+  const cornerRatio = 0.15
+  const dLon = (maxLng - minLng) * cornerRatio
+  const dLat = (maxLat - minLat) * cornerRatio
+  const color = Cesium.Color.fromCssColorString('#64b5f6').withAlpha(0.9)
+
+  const corners = [
+    [[minLng, maxLat], [minLng + dLon, maxLat]],
+    [[minLng, maxLat], [minLng, maxLat - dLat]],
+    [[maxLng, maxLat], [maxLng - dLon, maxLat]],
+    [[maxLng, maxLat], [maxLng, maxLat - dLat]],
+    [[minLng, minLat], [minLng + dLon, minLat]],
+    [[minLng, minLat], [minLng, minLat + dLat]],
+    [[maxLng, minLat], [maxLng - dLon, minLat]],
+    [[maxLng, minLat], [maxLng, minLat + dLat]],
+  ]
+  corners.forEach(([start, end]) => {
+    const entity = viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([...start, ...end]),
+        width: 2,
+        material: color,
+        clampToGround: true,
+      },
+    })
+    aoiEntities.push(entity)
+  })
+
+  const fill = viewer.entities.add({
+    rectangle: {
+      coordinates: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
+      material: Cesium.Color.fromCssColorString('#64b5f6').withAlpha(0.06),
+      fill: true,
+      outline: false,
+    },
+  })
+  aoiEntities.push(fill)
+
+  store.setAOI({ minLat, maxLat, minLng, maxLng })
+  viewer.camera.flyTo({
+    destination: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
+    duration: 1.5,
+  })
+}
+
+function clearAOI() {
+  aoiEntities.forEach(e => viewer.entities.remove(e))
+  aoiEntities = []
+}
 let geojsonDataSource = null
+let dynamicScenarioEntities = []  
 let modelEntity = null
 let drawHandler = null
 let drawPoints = []
@@ -139,6 +214,8 @@ let labelHandler = null
 let labelEntities = []
 let geoHandler = null
 let geoEntities = []
+let villageMarkers = []
+let _villageSyncHandler = null
 let currentBaseLayer = null
 
 function getViewer() { return viewerStore.viewer }
@@ -166,7 +243,10 @@ function switchTo3D() { is2D.value = false; viewer.scene.morphTo3D(0) }
 function clearGeoJSON() {
   if (geojsonDataSource) { viewer.dataSources.remove(geojsonDataSource); geojsonDataSource = null }
   geojsonCount.value = 0
+  dynamicScenarioEntities.forEach(entity => viewer.entities.remove(entity))
+  dynamicScenarioEntities = []
   pickedFeature.value = ''
+  clearVillageMarkers()
 }
 
 function clearModel() {
@@ -211,6 +291,147 @@ async function onGeoJSONFile(e) {
     loadingGeoJSON.value = false
     e.target.value = ''
   }
+}
+
+async function fetchNearbyPlaces(lat, lon) {
+  const query = `[out:json];(node[place~"village|hamlet|town"](around:50000,${lat},${lon}););out;`
+  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    const data = await res.json()
+    return (data.elements || []).map(e => ({
+      name: e.tags['name:zh'] || e.tags.name || '未知',
+      lat: e.lat,
+      lon: e.lon,
+      type: e.tags.place || 'village',
+    }))
+  } catch (e) {
+    console.warn('Overpass API 查询失败，使用本地生成的村庄数据:', e.message)
+    return []
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function createVillageMarker(lon, lat, name) {
+  const v = viewerStore.viewer
+  if (!v) return null
+  const el = document.createElement('div')
+  el.className = 'village-marker'
+  el.innerHTML = `
+    <img src="./icons/village.svg" class="village-icon" alt="" />
+    <span class="village-label">${name}</span>
+  `
+  v.container.appendChild(el)
+  return { el, name, position: Cesium.Cartesian3.fromDegrees(lon, lat) }
+}
+
+function syncVillageMarkers() {
+  const v = viewerStore.viewer
+  if (!v) return
+  villageMarkers.forEach(m => {
+    const sp = v.scene.cartesianToCanvasCoordinates(m.position)
+    if (sp) {
+      m.el.style.left = sp.x + 'px'
+      m.el.style.top = sp.y + 'px'
+      m.el.style.display = 'flex'
+    } else {
+      m.el.style.display = 'none'
+    }
+  })
+}
+
+function clearVillageMarkers() {
+  villageMarkers.forEach(m => m.el.remove())
+  villageMarkers = []
+  if (_villageSyncHandler) { _villageSyncHandler(); _villageSyncHandler = null }
+}
+
+async function generateScenarioFromEarthquake(centerLon, centerLat) {
+  if (!viewer) return
+  clearGeoJSON()
+  loadingGeoJSON.value = true
+
+  const places = await fetchNearbyPlaces(centerLat, centerLon)
+  const villages = []
+  const watchtowers = []
+  const entities = []
+
+  const dam = { name: '堰塞坝', lng: centerLon + 0.05, lat: centerLat - 0.1, height: 45 }
+  const dispatchCenter = { name: '县城', lng: centerLon + 0.15, lat: centerLat + 0.12, population: 80000 }
+
+  let villagePlaces = places.filter(p => p.type === 'village' || p.type === 'hamlet')
+  const townPlaces = places.filter(p => p.type === 'town')
+
+  if (villagePlaces.length === 0) {
+    const offsets = [
+      { dLon: -0.08, dLat: 0.05, name: '上河村' },
+      { dLon: 0.06, dLat: 0.08, name: '下河村' },
+      { dLon: -0.04, dLat: -0.07, name: '东山村' },
+      { dLon: 0.09, dLat: -0.04, name: '西坪村' },
+      { dLon: -0.1, dLat: -0.02, name: '南沟村' },
+      { dLon: 0.03, dLat: 0.12, name: '北岭村' },
+    ]
+    villagePlaces = offsets.map(o => ({ lon: centerLon + o.dLon, lat: centerLat + o.dLat, name: o.name }))
+  }
+
+  const displayVillages = villagePlaces.slice(0, 6)
+  clearVillageMarkers()
+  displayVillages.forEach((p, idx) => {
+    const marker = createVillageMarker(p.lon, p.lat, p.name)
+    if (marker) villageMarkers.push(marker)
+    villages.push({ name: p.name, lng: p.lon, lat: p.lat, population: 1000 + idx * 500, elevation: 1200 + idx * 100 })
+  })
+  if (!_villageSyncHandler) {
+    _villageSyncHandler = viewerStore.viewer.scene.postRender.addEventListener(syncVillageMarkers)
+  }
+
+  if (townPlaces.length > 0) {
+    const town = townPlaces[0]
+    dispatchCenter.name = town.name
+    dispatchCenter.lng = town.lon
+    dispatchCenter.lat = town.lat
+  }
+
+  const towerDefs = [
+    { name: '瞭望塔1号', lng: centerLon - 0.05, lat: centerLat + 0.12, height: 25, elevation: 2400 },
+    { name: '瞭望塔2号', lng: centerLon + 0.1, lat: centerLat - 0.08, height: 30, elevation: 2600 },
+  ]
+  towerDefs.forEach(t => {
+    const marker = createVillageMarker(t.lng, t.lat, t.name)
+    if (!marker) return
+    marker.el.querySelector('.village-icon').src = './icons/observation-tower.svg'
+    villageMarkers.push(marker)
+    watchtowers.push({ name: t.name, lng: t.lng, lat: t.lat, height: t.height, elevation: t.elevation })
+  })
+
+  const dashMaterial = new Cesium.PolylineDashMaterialProperty({
+    color: Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.8),
+    dashLength: 16,
+    dashPattern: 0xFF00,
+  })
+  displayVillages.forEach(p => {
+    const lineEntity = viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([centerLon, centerLat, p.lon, p.lat]),
+        width: 2,
+        material: dashMaterial,
+        clampToGround: true,
+      },
+      properties: { type: 'road', name: '疏散路线' },
+    })
+    dynamicScenarioEntities.push(lineEntity)
+  })
+
+  geojsonCount.value = dynamicScenarioEntities.length
+  store.setHazards(villages)
+  store.setWatchtowers(watchtowers)
+  store.setFloodLevel(0, dam)
+  store.setDispatchCenter(dispatchCenter)
+
+  loadingGeoJSON.value = false
 }
 
 async function onModelFile(e) {
@@ -486,8 +707,10 @@ function toggleLabelMode() {
 }
 
 function setupGeoJSONClick() {
+  if (!viewer) return  
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   handler.setInputAction((click) => {
+    if (!viewer) return     
     const picked = viewer.scene.pick(click.position)
     if (picked && picked.id && picked.id.name) {
       pickedFeature.value = picked.id.name
@@ -495,21 +718,39 @@ function setupGeoJSONClick() {
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 }
 
+watch(() => store.selectedEarthquake, (eq) => {
+  if (!eq || !viewerStore.viewer) return
+  viewer = viewerStore.viewer   
+  const { lon, lat } = eq
+  aoi.minLat = +(lat - 0.5).toFixed(4)
+  aoi.maxLat = +(lat + 0.5).toFixed(4)
+  aoi.minLng = +(lon - 0.5).toFixed(4)
+  aoi.maxLng = +(lon + 0.5).toFixed(4)
+  drawAOI()
+  nextTick(() => generateScenarioFromEarthquake(lon, lat))
+}, { immediate: true })
+
+
+
 onMounted(() => {
   viewer = viewerStore.viewer
   if (!viewer) return
-  viewer.scene.setTerrain(new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1)))
-  viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
+  if (store.aoi) {                   // ← 新增，把泸定AOI降级
+    Object.assign(aoi, store.aoi)
+    drawAOI()
+  }
+  else {
+    viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
+  }
   setupGeoJSONClick()
 })
 
 onBeforeUnmount(() => {
   if (drawHandler) drawHandler.destroy()
   if (labelHandler) labelHandler.destroy()
-  if (geojsonDataSource) viewer.dataSources.remove(geojsonDataSource, true)
-  if (currentBaseLayer) viewer.imageryLayers.remove(currentBaseLayer, true)
-  geojsonDataSource = null
-  currentBaseLayer = null
+  drawHandler = null
+  labelHandler = null
+  clearVillageMarkers()
   viewer = null
 })
 </script>
@@ -520,6 +761,7 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   background: transparent;
+  pointer-events: none;
 }
 .side-panel {
   position: absolute;
@@ -528,6 +770,7 @@ onBeforeUnmount(() => {
   bottom: 12px;
   width: 280px;
   z-index: 100;
+  pointer-events: auto;
   overflow: hidden;
   padding: 0;
   background: rgba(254, 252, 245, 0.88);
@@ -584,6 +827,8 @@ onBeforeUnmount(() => {
 .collapse-arrow { font-size: 10px; opacity: 0.5; }
 .hint { font-size: 11px; color: #8b7e6a; margin-top: 3px; line-height: 1.4; }
 .btn-row { display: flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap; }
+.coord-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; font-size: 11px; color: #6b5e4a; }
+.coord-row input { width: 60px; padding: 3px 4px; border: 1px solid rgba(45,138,78,0.2); border-radius: 4px; background: rgba(255,255,255,0.5); color: #3d3929; font-size: 11px; text-align: center; }
 .btn {
   padding: 6px 10px; border: none; border-radius: 6px;
   background: rgba(45, 138, 78, 0.1); color: #3d3929; cursor: pointer; font-size: 11px;
@@ -613,6 +858,7 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translateY(-50%);
   z-index: 110;
+  pointer-events: auto;
   width: 22px;
   height: 48px;
   border: none;
@@ -637,5 +883,30 @@ onBeforeUnmount(() => {
 }
 .map-area {
   position: absolute; inset: 0; z-index: 0;
+}
+</style>
+
+<style>
+.village-marker {
+  position: absolute;
+  pointer-events: none;
+  z-index: 200;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.village-icon {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+.village-label {
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  text-shadow: 0 0 4px #000, 0 0 4px #000;
+  white-space: nowrap;
 }
 </style>

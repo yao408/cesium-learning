@@ -1,0 +1,63 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "磨西镇", "type": "village", "population": 3200, "elevation": 1580 },
+      "geometry": { "type": "Point", "coordinates": [102.12, 29.65] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "得妥镇", "type": "village", "population": 1800, "elevation": 1340 },
+      "geometry": { "type": "Point", "coordinates": [102.21, 29.72] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "冷碛镇", "type": "village", "population": 2400, "elevation": 1250 },
+      "geometry": { "type": "Point", "coordinates": [102.28, 29.82] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "烹坝乡", "type": "village", "population": 900, "elevation": 1160 },
+      "geometry": { "type": "Point", "coordinates": [102.32, 29.95] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "瞭望塔1号", "type": "watchtower", "height": 25, "elevation": 2150 },
+      "geometry": { "type": "Point", "coordinates": [102.05, 29.60] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "瞭望塔2号", "type": "watchtower", "height": 25, "elevation": 1980 },
+      "geometry": { "type": "Point", "coordinates": [102.35, 29.78] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "堰塞坝", "type": "dam", "height": 45, "volume": 2800000 },
+      "geometry": { "type": "Point", "coordinates": [102.08, 29.58] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "省道S211", "type": "road", "level": "provincial" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [102.10, 29.56],
+          [102.12, 29.65],
+          [102.18, 29.69],
+          [102.21, 29.72],
+          [102.25, 29.77],
+          [102.28, 29.82],
+          [102.31, 29.88],
+          [102.32, 29.95],
+          [102.33, 30.02]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "name": "泸定县城", "type": "dispatch_center", "population": 45000 },
+      "geometry": { "type": "Point", "coordinates": [102.23, 29.91] }
+    }
+  ]
+}

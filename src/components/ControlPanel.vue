@@ -187,6 +187,7 @@ export default {
   bottom: 12px;
   width: 260px;
   z-index: 100;
+  pointer-events: auto;
   overflow: hidden;
   padding: 0;
   background: rgba(254, 252, 245, 0.88);
@@ -422,6 +423,7 @@ export default {
   top: 50%;
   transform: translateY(-50%);
   z-index: 110;
+  pointer-events: auto;
   width: 22px;
   height: 48px;
   border: none;
