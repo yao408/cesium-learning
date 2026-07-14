@@ -58,9 +58,11 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import * as Cesium from 'cesium'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
+import { useCameraInit } from '../composables/useCameraInit.js'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
+const { flyToAOI } = useCameraInit()
 
 const collapsed = ref(false)
 const timeRange = ref('week')
@@ -312,17 +314,6 @@ function switchStyle() {
     viewer.imageryLayers.remove(currentBaseLayer, true)
     currentBaseLayer = null
   }
-  if (mapStyle.value === 'gaode') {
-    currentBaseLayer = viewer.imageryLayers.addImageryProvider(
-      new Cesium.UrlTemplateImageryProvider({
-        url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-        subdomains: ['1', '2', '3', '4'],
-        minimumLevel: 3,
-        maximumLevel: 18,
-      }),
-      0
-    )
-  }
 }
 
 watch(minMag, updateQuakes)
@@ -415,17 +406,7 @@ function initHoverHandler() {
 onMounted(() => {
   viewer = viewerStore.viewer
   if (!viewer) return
-  if (store.aoi) {
-    const { minLat, maxLat, minLng, maxLng } = store.aoi
-    viewer.camera.flyTo({
-      destination: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
-      duration: 1,
-    })
-  } else {
-    viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(116.4, 39.9, 12000000),
-    })
-  }
+  flyToAOI(viewer, { lon: 116.4, lat: 39.9, height: 12000000 })
   switchStyle()
   fetchData()
   initHoverHandler()

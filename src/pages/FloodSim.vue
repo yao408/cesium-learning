@@ -98,34 +98,38 @@ import * as Cesium from 'cesium'
 import { GPUFloodSim } from '../utils/gpuFloodSim.js'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
+import { useSiteMarkers } from '../composables/useSiteMarkers.js'
 import { haversineDistance } from '../utils/geo.js'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
+const { loadWatchtowers, loadVillages, clearAll: clearMarkers } = useSiteMarkers()
 
-const collapsed = ref(false)
-const sourceMode = ref(false)
-const sourcePoint = ref(null)
-const floodVolume = ref(store.floodVolume || 100)
-const flowSpeed = ref(store.flowSpeed || 'medium')
-const simulating = ref(false)
-const simResults = ref(null)
-const simElapsed = ref(0)
-const SIM_MAX_DURATION = 30
+// ==================== 响应式状态 ====================
+const collapsed = ref(false)          // 面板折叠状态
+const sourceMode = ref(false)         // 是否正在点击地图选水源点
+const sourcePoint = ref(null)         // 水源点 {lon, lat}
+const floodVolume = ref(store.floodVolume || 100)   // 洪水总量（万m³）
+const flowSpeed = ref(store.flowSpeed || 'medium')  // 出水速度
+const simulating = ref(false)         // 是否正在模拟
+const simResults = ref(null)          // 模拟结果 {area, maxDepth, affectedVillages, villageList}
+const simElapsed = ref(0)             // 已模拟秒数
+const SIM_MAX_DURATION = 30           // 最大模拟时长（秒）
 
+// 流速 → GPU 着色器 flowRate 映射
 const SPEED_MAP = { slow: 0.05, medium: 0.1, fast: 0.2, extreme: 0.4 }
 
-let viewer = null
-let sourcePickHandler = null
-let sourceMarker = null
-let gpuSim = null
-let floodBoundaryTimer = null
-let autoStopTimer = null
-let simStartTime = 0
-let floodPolyEntity = null
-let siteMarkers = []
-let _siteSyncHandler = null
+// ==================== 非响应式引用 ====================
+let viewer = null               // Cesium Viewer 实例
+let sourcePickHandler = null    // 水源点拾取事件处理器
+let sourceMarker = null         // 水源点标记 Entity
+let gpuSim = null               // GPUFloodSim 实例
+let floodBoundaryTimer = null   // 边界轮询定时器
+let autoStopTimer = null        // 自动停止定时器
+let simStartTime = 0            // 模拟开始时间戳
+let floodPolyEntity = null      // 洪水淹没范围多边形 Entity
 
+// 监听洪水参数变化，实时更新 GPU 模拟
 watch([floodVolume, flowSpeed], () => {
   if (gpuSim && sourcePoint.value) {
     const waterAmount = floodVolume.value * 0.5
@@ -136,6 +140,7 @@ watch([floodVolume, flowSpeed], () => {
   }
 })
 
+// 切换水源点拾取模式：点击地图选点 → 创建标记 → 飞行相机
 function toggleSourcePick() {
   sourceMode.value = !sourceMode.value
   if (sourceMode.value) {
@@ -161,6 +166,7 @@ function toggleSourcePick() {
         label: { text: '💧水源', font: '14px sans-serif', fillColor: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -14) },
       })
 
+      // 飞行到水源点上方，俯视视角
       const alt = Math.max(h + 5000, 8000)
       const hDist = (alt - h) / Math.tan(Cesium.Math.toRadians(60))
       const offsetLat = hDist / 111000
@@ -176,6 +182,7 @@ function toggleSourcePick() {
   }
 }
 
+// 清除水源点：停止模拟 → 销毁 GPU 实例 → 移除标记和实体 → 重置状态
 function clearSource() {
   stopSimulation()
   if (gpuSim) {
@@ -202,6 +209,7 @@ function clearSource() {
   store.setFloodResults(null)
 }
 
+// 初始化 GPU 洪水模拟 → 设置水源点 → 开始模拟 → 启动边界轮询
 async function initGPUSim() {
   if (!sourcePoint.value) return
   if (gpuSim) {
@@ -219,6 +227,7 @@ async function initGPUSim() {
   scheduleBoundaryPoll()
 }
 
+// 定时轮询 GPU 模拟的洪水边界，每 50ms 更新一次多边形
 function scheduleBoundaryPoll() {
   if (floodBoundaryTimer) clearTimeout(floodBoundaryTimer)
   floodBoundaryTimer = setTimeout(() => {
@@ -234,6 +243,7 @@ function scheduleBoundaryPoll() {
   }, 50)
 }
 
+// 更新 Cesium 洪水淹没范围多边形 Entity
 function updateFloodPolygon(boundary) {
   if (!viewer) return
   if (!boundary || boundary.length < 6) {
@@ -271,6 +281,7 @@ function updateFloodPolygon(boundary) {
   }
 }
 
+// 生成一个圆形 fallback 边界（当 GPU 无法提取边界时使用）
 function buildFallbackBoundary(lon, lat) {
   const coords = []
   const radiusDeg = 0.01
@@ -282,6 +293,7 @@ function buildFallbackBoundary(lon, lat) {
   return coords
 }
 
+// 开始模拟：清除旧多边形 → 初始化 GPU 模拟 → 启动自动停止计时器
 function startSimulation() {
   if (!sourcePoint.value) return
   if (simulating.value) return
@@ -296,6 +308,7 @@ function startSimulation() {
   startAutoStop()
 }
 
+// 每秒递增计时器，达到 SIM_MAX_DURATION 自动停止
 function startAutoStop() {
   if (autoStopTimer) clearInterval(autoStopTimer)
   autoStopTimer = setInterval(() => {
@@ -306,6 +319,7 @@ function startAutoStop() {
   }, 1000)
 }
 
+// 停止模拟：清除定时器 → 提取最终边界 → 更新多边形 → 计算结果
 function stopSimulation() {
   simulating.value = false
   if (autoStopTimer) {
@@ -327,6 +341,7 @@ function stopSimulation() {
   }
 }
 
+// 根据洪水边界多边形计算：淹没面积、受影响村庄数
 function computeResults(boundary) {
   if (!boundary || boundary.length < 6) {
     if (!sourcePoint.value) {
@@ -336,17 +351,20 @@ function computeResults(boundary) {
     boundary = buildFallbackBoundary(sourcePoint.value.lon, sourcePoint.value.lat)
   }
 
+  // 经纬度坐标 → 多边形顶点数组 [[lon, lat], ...]
   const polyCoords = []
   for (let i = 0; i < boundary.length; i += 2) {
     polyCoords.push([boundary[i], boundary[i + 1]])
   }
   if (polyCoords.length > 0) polyCoords.push(polyCoords[0])
 
+  // 多边形面积（度²）→ 转换为 km²
   const areaDeg = polygonAreaDeg(polyCoords)
   const midLat = sourcePoint.value ? sourcePoint.value.lat : polyCoords[0][1]
   const areaKm2 = areaDeg * (111.32 * Math.cos(Cesium.Math.toRadians(midLat)) * 111.32)
   const areaStr = areaKm2 < 0.01 ? '<0.01' : areaKm2.toFixed(2)
 
+  // 遍历危险源列表，判断是否在洪水淹没范围内
   const villages = store.hazards || []
   const affected = []
   for (const v of villages) {
@@ -368,6 +386,7 @@ function computeResults(boundary) {
   store.setFloodResults(simResults.value)
 }
 
+// 射线法判断点是否在多边形内（polygon 为 [lon0, lat0, lon1, lat1, ...] 格式）
 function isPointInFloodPolygon(lon, lat, polygon) {
   if (!polygon || polygon.length < 6) return false
   let inside = false
@@ -381,6 +400,7 @@ function isPointInFloodPolygon(lon, lat, polygon) {
   return inside
 }
 
+// 计算多边形面积（单位：度²），使用 Shoelace 公式
 function polygonAreaDeg(coords) {
   let area = 0
   for (let i = 0; i < coords.length - 1; i++) {
@@ -389,35 +409,16 @@ function polygonAreaDeg(coords) {
   return Math.abs(area) / 2
 }
 
-function syncSiteMarkers() {
-  const v = viewerStore.viewer
-  if (!v) return
-  siteMarkers.forEach(m => {
-    const sp = v.scene.cartesianToCanvasCoordinates(m.position)
-    if (sp) {
-      m.el.style.left = sp.x + 'px'
-      m.el.style.top = sp.y + 'px'
-      m.el.style.display = 'flex'
-    } else {
-      m.el.style.display = 'none'
-    }
-  })
-}
-
-function clearSiteMarkers() {
-  siteMarkers.forEach(m => m.el.remove())
-  siteMarkers = []
-  if (_siteSyncHandler) { _siteSyncHandler(); _siteSyncHandler = null }
-}
-
 onMounted(() => {
   viewer = viewerStore.viewer
   if (!viewer) return
 
+  // 启用 Cesium World Terrain（高精度地形）
   viewer.scene.setTerrain(
     new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1))
   )
 
+  // 初始相机定位：AOI 矩形 > 地震点 > 默认北京
   if (store.aoi) {
     const { minLat, maxLat, minLng, maxLng } = store.aoi
     viewer.camera.flyTo({
@@ -437,27 +438,8 @@ onMounted(() => {
     })
   }
 
-  if (store.watchtowers && store.watchtowers.length > 0) {
-    store.watchtowers.forEach(t => {
-      const el = document.createElement('div')
-      el.className = 'village-marker'
-      el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (t.name || '') + '</span>'
-      viewer.container.appendChild(el)
-      siteMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(t.lng ?? t.lon, t.lat) })
-    })
-  }
-  if (store.hazards && store.hazards.length > 0) {
-    store.hazards.forEach(v => {
-      const el = document.createElement('div')
-      el.className = 'village-marker'
-      el.innerHTML = '<img src="./icons/village.svg" class="village-icon" alt="" /><span class="village-label">' + (v.name || '') + '</span>'
-      viewer.container.appendChild(el)
-      siteMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(v.lng ?? v.lon, v.lat) })
-    })
-  }
-  if (siteMarkers.length > 0) {
-    _siteSyncHandler = viewer.scene.postRender.addEventListener(syncSiteMarkers)
-  }
+  loadWatchtowers(store.watchtowers || [])
+  loadVillages(store.hazards || [])
 })
 
 onBeforeUnmount(() => {
@@ -471,7 +453,7 @@ onBeforeUnmount(() => {
   sourcePickHandler = null
   sourceMarker = null
   floodPolyEntity = null
-  clearSiteMarkers()
+  clearMarkers()
   viewer = null
 })
 </script>

@@ -17,6 +17,14 @@
         </div>
       </div>
 
+      <div class="panel" v-if="analysisMode==='viewshed'">
+        <span class="label">可视化模式</span>
+        <div class="style-toggle" style="margin-top:2px">
+          <button @click="visualMode='lines'; recomputeViewshed()" :class="{ active: visualMode==='lines' }">📏 线条</button>
+          <button @click="visualMode='face'; runGPUAll()" :class="{ active: visualMode==='face' }">🎨 面着色</button>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="control-group">
           <label>瞭望塔高度 (高于地面 · 规范≥15m)</label>
@@ -39,19 +47,16 @@
             <span class="value">{{ stepSize }} m</span>
           </div>
           <div class="checkbox-label" style="margin-top:2px">
-            <input type="checkbox" v-model="showOcclusionWalls" />
-            显示遮挡墙
-          </div>
-          <div class="checkbox-label" style="margin-top:2px">
             <input type="checkbox" v-model="showFirePoints" />
             火点探测模拟
           </div>
           <div v-if="showFirePoints" style="margin-top:6px">
             <label>火点数量</label>
             <div class="slider-row">
-              <input type="range" v-model.number="firePointCount" min="10" max="100" step="5" />
+              <input type="range" v-model.number="firePointCount" min="5" max="30" step="5" />
               <span class="value">{{ firePointCount }}</span>
             </div>
+            <button @click="firePointPositions = null" class="preset-btn" style="margin-top:4px;width:100%;font-size:12px" :disabled="firePointPositions === null">🎲 重新生成火点</button>
             <label>烟柱高度</label>
             <div class="slider-row">
               <input type="range" v-model.number="smokeHeight" min="10" max="150" step="5" />
@@ -69,13 +74,36 @@
       </div>
 
       <div class="panel">
-        <span class="label">瞭望塔点位 ({{ observerPoints.length }})</span>
+        <span class="label">{{ analysisMode==='los' ? '观测点 & 目标点' : '瞭望塔点位 (' + observerPoints.length + ')' }}</span>
         <div class="btn-group" style="margin-bottom:6px">
           <button @click="togglePickObserver" class="preset-btn" :class="{ active: pickObserver }">
-            {{ pickObserver ? '🖱️ 选点中...' : '+ 添加瞭望塔' }}
+            {{ pickObserver ? '🖱️ 选点中...' : (analysisMode==='los' ? '+ 观测点' : '+ 添加瞭望塔') }}
+          </button>
+          <button v-if="analysisMode==='los'" @click="togglePickTarget" class="preset-btn" :class="{ active: pickTarget }">
+            {{ pickTarget ? '🖱️ 选点中...' : '+ 目标点' }}
+          </button>
+          <button @click="toggleMeasure" class="preset-btn" :class="{ active: measureMode }">
+            {{ measureMode ? '📏 测距中...' : '📏 测距' }}
           </button>
           <button @click="clearAllPoints" class="preset-btn btn-danger" :disabled="observerPoints.length===0">清空</button>
         </div>
+        <!-- 手动输入坐标 -->
+        <div v-if="analysisMode==='los'" class="manual-coords">
+          <div class="coord-row">
+            <span class="coord-label">观测点</span>
+            <input type="number" v-model.number="manualObsLon" placeholder="经度" step="0.00001" class="coord-input" />
+            <input type="number" v-model.number="manualObsLat" placeholder="纬度" step="0.00001" class="coord-input" />
+            <input type="number" v-model.number="manualObsHeight" placeholder="海拔(m)" step="0.1" class="coord-input coord-input-sm" />
+          </div>
+          <div class="coord-row">
+            <span class="coord-label">目标点</span>
+            <input type="number" v-model.number="manualTgtLon" placeholder="经度" step="0.00001" class="coord-input" />
+            <input type="number" v-model.number="manualTgtLat" placeholder="纬度" step="0.00001" class="coord-input" />
+            <input type="number" v-model.number="manualTgtHeight" placeholder="海拔(m)" step="0.1" class="coord-input coord-input-sm" />
+          </div>
+          <button @click="applyManualCoords" class="preset-btn" style="width:100%;margin-top:4px">📌 应用坐标</button>
+        </div>
+        <p v-if="measureResult" class="hint" style="color:#fbbf24;margin-top:2px">{{ measureResult }}</p>
         <div v-if="observerPoints.length" class="point-list">
           <div v-for="(p, i) in observerPoints" :key="i"
             :class="['point-item', { active: activeObserverIdx === i }]"
@@ -90,9 +118,18 @@
         <button @click="runAnalysis" class="preset-btn" style="margin-top:6px;width:100%" :disabled="!canRunAnalysis || loading">
           {{ loading ? '⏳ 分析中...' : '🔄 分析' }}
         </button>
-        <button @click="flyToActiveObserver" class="preset-btn" style="margin-top:4px;width:100%" :disabled="activeObserverPoint===null">
+        <button @click="enterFirstPerson" class="preset-btn" style="margin-top:4px;width:100%" :disabled="activeObserverPoint===null">
           👁️ 锁定瞭望塔视角
         </button>
+        <button @click="toggleVerify" class="preset-btn" style="margin-top:4px;width:100%" :class="{ active: verifyMode }" :disabled="!activeObserverPoint">
+          {{ verifyMode ? '🎯 点击地图验证...' : '🎯 验证点' }}
+        </button>
+        <p v-if="verifyResult" class="hint" :style="{ color: verifyResult.visible ? '#4ade80' : '#ef4444', marginTop: '4px' }">
+          {{ verifyResult.visible ? '✅ 可见' : '❌ 被遮挡' }}
+          <span v-if="!verifyResult.visible"> | 遮挡距 {{ verifyResult.blockDist?.toFixed(0) }}m</span>
+          | 距离 {{ verifyResult.totalDist?.toFixed(0) }}m
+          <br>📍 {{ verifyResult.lon?.toFixed(4) }}, {{ verifyResult.lat?.toFixed(4) }} | 海拔 {{ verifyResult.groundH?.toFixed(1) }}m
+        </p>
         <button @click="removeLockCamera" class="preset-btn" style="margin-top:4px;width:100%">
           🔓 解锁视角
         </button>
@@ -114,20 +151,12 @@
         </div>
       </div>
 
-      <div class="panel" v-if="analysisMode==='viewshed'">
-        <h4 class="collapsible" @click="toggleSection('preset')">快速预置 <span class="collapse-arrow">{{ sections.preset ? '▶' : '▼' }}</span></h4>
-        <div v-show="!sections.preset" class="preset-btns">
-          <button v-for="p in mountainPresets" :key="p.name" @click="addPresetPoint(p)" class="preset-btn">
-            {{ p.name }}
-          </button>
-        </div>
-      </div>
+      
 
       <div class="panel">
         <div class="info legend-compact">
           <span>🟢 可见</span>
           <span>🔴 遮挡</span>
-          <span>🔵 瞭望塔</span>
           <span v-if="analysisMode==='viewshed' && showFirePoints">🟩 可探测</span>
           <span v-if="analysisMode==='viewshed' && showFirePoints">🟥 漏报</span>
           <span v-if="analysisMode==='los'">🟡 目标</span>
@@ -168,24 +197,40 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, onDeactivated, nextTick } from 'vue'
 import * as Cesium from 'cesium'
 import * as echarts from 'echarts'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
+import { useSiteMarkers } from '../composables/useSiteMarkers.js'
+import { useCameraInit } from '../composables/useCameraInit.js'
+import { useTerrainQuery } from '../composables/useTerrainQuery.js'
+import { useViewshedAnalysis } from '../composables/useViewshedAnalysis.js'
+import { useViewshedGPU } from '../composables/useViewshedGPU.js'
+import { useFireSimulation } from '../composables/useFireSimulation.js'
+import { useFirstPerson } from '../composables/useFirstPerson.js'
 import { haversineDistance } from '../utils/geo.js'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
+const { addWatchtower, addCircleMarker, addFireMarker, removeMarker, clearAll, loadWatchtowers, loadVillages } = useSiteMarkers()
+const { flyToAOI } = useCameraInit()
+const { getPickInfo, getHeightAtPosition } = useTerrainQuery()
+const { isPointVisibleFrom, computeViewshed, computeLineOfSight } = useViewshedAnalysis()
+const { runGPUViewshed, clearGPUViewshed } = useViewshedGPU()
+const { runFirePointSimulation } = useFireSimulation()
+const { isFirstPerson, enterFirstPerson: fpEnter, exitFirstPerson: fpExit } = useFirstPerson()
 
 const observerHeight = ref(20)
 const maxDistance = ref(5000)
-const stepSize = ref(100)
+const stepSize = ref(50)
 const analysisMode = ref('viewshed')
+const visualMode = ref('lines')
 const pickObserver = ref(false)
 const pickTarget = ref(false)
 const observerPoints = ref([])
 const activeObserverIdx = ref(0)
+const losObserver = ref(null) // 点对点模式的独立观测点
 const targetPoint = ref(null)
 const targetHeight = ref(0)
 const losResult = ref(null)
@@ -193,37 +238,43 @@ const hoverInfo = ref(null)
 const viewshedStats = ref(null)
 const chartRef = ref(null)
 const collapsed = ref(false)
-const sections = reactive({ preset: true })
-function toggleSection(key) { sections[key] = !sections[key] }
+
 const loading = ref(false)
-const showOcclusionWalls = ref(false)
 const showFirePoints = ref(false)
-const firePointCount = ref(30)
+const firePointCount = ref(15)
+const firePointPositions = ref(null) // 固定火点坐标，null 表示下次分析时重新随机生成
 const smokeHeight = ref(50)
+const nextTowerId = ref(1) // 全局递增编号，删除不回收
+const measureMode = ref(false)
+const measurePoints = ref([]) // [{lon, lat, groundHeight, marker}]
+const measureResult = ref('')
+const manualObsLon = ref(117.107)
+const manualObsLat = ref(36.244)
+const manualObsHeight = ref(893.5)
+const manualTgtLon = ref(117.10090)
+const manualTgtLat = ref(36.24777)
+const manualTgtHeight = ref(987.7)
+const verifyMode = ref(false)
+const verifyResult = ref(null)
 
 const COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#fb923c', '#34d399', '#f87171']
 
-const mountainPresets = [
-  { name: '泰山玉皇顶', lon: 117.10, lat: 36.25 },
-  { name: '华山南峰', lon: 110.09, lat: 34.49 },
-  { name: '黄山天都峰', lon: 118.17, lat: 30.13 },
-]
+
 let viewer = null
 let clickHandler = null
 let hoverHandler = null
 let chartInstance = null
 let lastHoverTime = 0
 let observerEntities = []
-let targetEntity = null
+let targetMarker = null
 let viewshedEntities = []
-let wallEntities = []
+let domeEntities = []
 let firePointEntities = []
 let losEntities = []
 let lockCameraListener = null
-let watchtowerMarkers = []
-let _watchtowerSyncHandler = null
 
 const activeObserverPoint = computed(() => {
+  if (analysisMode.value === 'los') return losObserver.value
   if (observerPoints.value.length === 0) return null
   return observerPoints.value[activeObserverIdx.value] || null
 })
@@ -278,14 +329,23 @@ function updateChart() {
 
 function clearAnalysis() {
   loading.value = false
+  clearGPUViewshed()
+  domeEntities.forEach(e => viewer.entities.remove(e))
+  domeEntities = []
   viewshedEntities.forEach(e => viewer.entities.remove(e))
   viewshedEntities = []
-  wallEntities.forEach(e => viewer.entities.remove(e))
-  wallEntities = []
-  firePointEntities.forEach(e => viewer.entities.remove(e))
+  firePointEntities.forEach(e => {
+    if (e.el) removeMarker(e)
+    else viewer.entities.remove(e)
+  })
   firePointEntities = []
-  losEntities.forEach(e => viewer.entities.remove(e))
+  losEntities.forEach(e => {
+    if (e.el) removeMarker(e)
+    else viewer.entities.remove(e)
+  })
   losEntities = []
+  if (targetMarker) { removeMarker(targetMarker); targetMarker = null }
+  losObserver.value = null
   targetPoint.value = null
   losResult.value = null
   viewshedStats.value = null
@@ -296,34 +356,139 @@ function clearAnalysis() {
 
 function clearAllPoints() {
   clearAnalysis()
-  observerEntities.forEach(m => {
-    m.el.remove()
-    const wmIdx = watchtowerMarkers.indexOf(m)
-    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
-  })
+  observerEntities.forEach(m => { removeMarker(m) })
   observerEntities = []
   observerPoints.value = []
   activeObserverIdx.value = 0
+  firePointPositions.value = null
 }
 
 function removeObserverPoint(idx) {
   if (observerEntities[idx]) {
-    observerEntities[idx].el.remove()
-    const wmIdx = watchtowerMarkers.indexOf(observerEntities[idx])
-    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
+    removeMarker(observerEntities[idx])
     observerEntities.splice(idx, 1)
   }
   observerPoints.value.splice(idx, 1)
   if (activeObserverIdx.value >= observerPoints.value.length) {
     activeObserverIdx.value = Math.max(0, observerPoints.value.length - 1)
   }
-  clearAnalysis()
+  // 删除后：有剩余塔则自动重新分析，没有则清空
+  if (observerPoints.value.length > 0) {
+    recomputeViewshed()
+  } else {
+    clearAnalysis()
+  }
 }
 
 function cancelPick() {
   pickObserver.value = false
   pickTarget.value = false
+  measureMode.value = false
+  verifyMode.value = false
+  measurePoints.value.forEach(p => { if (p.marker) removeMarker(p.marker) })
+  measurePoints.value = []
   if (clickHandler) { clickHandler.destroy(); clickHandler = null }
+}
+
+function toggleMeasure() {
+  if (measureMode.value) {
+    // 关闭测距模式
+    measureMode.value = false
+    measurePoints.value.forEach(p => { if (p.marker) removeMarker(p.marker) })
+    measurePoints.value = []
+    measureResult.value = ''
+    if (clickHandler) { clickHandler.destroy(); clickHandler = null }
+    return
+  }
+  cancelPick()
+  measureMode.value = true
+  measurePoints.value = []
+  measureResult.value = ''
+  clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  clickHandler.setInputAction(async (click) => {
+    const info = await getPickInfo(viewer, click)
+    if (!info) return
+    const marker = addCircleMarker(info.lon, info.lat, `P${measurePoints.value.length + 1}`, info.groundH)
+    measurePoints.value.push({ lon: info.lon, lat: info.lat, groundHeight: info.groundH, marker })
+    if (measurePoints.value.length === 2) {
+      const p1 = measurePoints.value[0]
+      const p2 = measurePoints.value[1]
+      const dist = haversineDistance(p1.lat, p1.lon, p2.lat, p2.lon)
+      const eleDiff = Math.abs(p2.groundHeight - p1.groundHeight)
+      measureResult.value = `📏 两点距离: ${dist.toFixed(1)} m | 高度差: ${eleDiff.toFixed(1)} m | 采样步长: ${stepSize.value} m → ${Math.floor(dist / stepSize.value)} 个采样点`
+      measureMode.value = false
+      clickHandler.destroy()
+      clickHandler = null
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+}
+
+function toggleVerify() {
+  if (verifyMode.value) {
+    verifyMode.value = false
+    if (clickHandler) { clickHandler.destroy(); clickHandler = null }
+    return
+  }
+  if (!activeObserverPoint.value) return
+  cancelPick()
+  verifyMode.value = true
+  verifyResult.value = null
+  clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  clickHandler.setInputAction(async (click) => {
+    const info = await getPickInfo(viewer, click)
+    if (!info) return
+    verifyMode.value = false
+    clickHandler.destroy()
+    clickHandler = null
+    const obs = activeObserverPoint.value
+    const losEntities = []
+    const result = await computeLineOfSight(viewer, {
+      observerPoint: obs,
+      targetPoint: { lon: info.lon, lat: info.lat, groundHeight: info.groundH },
+      observerHeight: observerHeight.value,
+      targetHeight: 0,
+      stepSize: stepSize.value,
+      losEntities,
+    })
+    verifyResult.value = { ...result.result, lon: info.lon, lat: info.lat, groundH: info.groundH }
+    losEntities.forEach(e => {
+      if (e.el) removeMarker(e)
+      else viewer.entities.remove(e)
+    })
+    if (result.result.visible) {
+      const marker = addCircleMarker(info.lon, info.lat, '✅可见', info.groundH)
+      setTimeout(() => removeMarker(marker), 3000)
+    } else {
+      const marker = addCircleMarker(info.lon, info.lat, '❌遮挡', info.groundH)
+      setTimeout(() => removeMarker(marker), 3000)
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+}
+
+function applyManualCoords() {
+  if (manualObsLon.value == null || manualObsLat.value == null) return
+  cancelPick()
+  if (losObserver.value) {
+    if (losObserver.value.marker) removeMarker(losObserver.value.marker)
+  }
+  losObserver.value = {
+    lon: manualObsLon.value,
+    lat: manualObsLat.value,
+    name: `经度${manualObsLon.value.toFixed(4)} 纬度${manualObsLat.value.toFixed(4)}`,
+    groundHeight: manualObsHeight.value ?? 0,
+    color: '#4ade80',
+  }
+  createObserverMarker(losObserver.value, 0)
+  if (manualTgtLon.value != null && manualTgtLat.value != null) {
+    if (targetMarker) { removeMarker(targetMarker); targetMarker = null }
+    targetPoint.value = {
+      lon: manualTgtLon.value,
+      lat: manualTgtLat.value,
+      name: `经度${manualTgtLon.value.toFixed(4)} 纬度${manualTgtLat.value.toFixed(4)}`,
+      groundHeight: manualTgtHeight.value ?? 0,
+    }
+    createTargetMarker(manualTgtLon.value, manualTgtLat.value)
+  }
 }
 
 function togglePickObserver() {
@@ -332,19 +497,32 @@ function togglePickObserver() {
   pickObserver.value = true
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction(async (click) => {
-    const info = await getPickInfo(click)
+    const info = await getPickInfo(viewer, click)
     if (!info) return
-    const idx = observerPoints.value.length
-    const colorIdx = idx % COLORS.length
-    const newPoint = {
-      lon: info.lon, lat: info.lat,
-      name: `瞭望塔${idx + 1}`,
-      groundHeight: info.groundH,
-      color: COLORS[colorIdx],
+    if (analysisMode.value === 'los') {
+      // 点对点模式：设置独立观测点，不加入瞭望塔列表
+      const newPoint = {
+        lon: info.lon, lat: info.lat,
+        name: '观测点',
+        groundHeight: info.groundH,
+        color: '#4ade80',
+      }
+      losObserver.value = newPoint
+      createObserverMarker(newPoint, 0)
+    } else {
+      const idx = observerPoints.value.length
+      const id = nextTowerId.value++
+      const colorIdx = (id - 1) % COLORS.length
+      const newPoint = {
+        lon: info.lon, lat: info.lat,
+        name: `瞭望塔${id}`,
+        groundHeight: info.groundH,
+        color: COLORS[colorIdx],
+      }
+      observerPoints.value.push(newPoint)
+      activeObserverIdx.value = idx
+      createObserverMarker(newPoint, idx)
     }
-    observerPoints.value.push(newPoint)
-    activeObserverIdx.value = idx
-    createObserverMarker(newPoint, idx)
     pickObserver.value = false
     clickHandler.destroy()
     clickHandler = null
@@ -358,7 +536,7 @@ function togglePickTarget() {
   pickTarget.value = true
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction(async (click) => {
-    const info = await getPickInfo(click)
+    const info = await getPickInfo(viewer, click)
     if (!info) return
     targetPoint.value = {
       lon: info.lon, lat: info.lat,
@@ -372,48 +550,134 @@ function togglePickTarget() {
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 }
 
-async function addPresetPoint(preset) {
-  const groundH = await getHeightAtPosition(preset.lon, preset.lat)
-  const idx = observerPoints.value.length
-  const colorIdx = idx % COLORS.length
-  const newPoint = { ...preset, groundHeight: groundH, color: COLORS[colorIdx] }
-  observerPoints.value.push(newPoint)
-  activeObserverIdx.value = idx
-  createObserverMarker(newPoint, idx)
-  flyToPoint(preset.lon, preset.lat)
-}
 
-function runAnalysis() {
+
+async function runAnalysis() {
   if (!activeObserverPoint.value) return
   store.setWatchtowers(observerPoints.value.map(p => ({ lon: p.lon, lat: p.lat, name: p.name, groundHeight: p.groundHeight })))
   if (analysisMode.value === 'viewshed') {
     recomputeViewshed()
   } else {
     if (!targetPoint.value) return
-    computeLineOfSight()
+    losEntities.forEach(e => {
+      if (e.el) removeMarker(e)
+      else viewer.entities.remove(e)
+    })
+    losEntities = []
+    losResult.value = null
+    const losResultData = await computeLineOfSight(viewer, {
+      observerPoint: activeObserverPoint.value,
+      targetPoint: targetPoint.value,
+      observerHeight: observerHeight.value,
+      targetHeight: targetHeight.value,
+      stepSize: stepSize.value,
+      losEntities,
+      addCircleMarker,
+    })
+    losResult.value = losResultData.result
+    // 进入第一视角，站在观测点看向目标点
+    const obs = activeObserverPoint.value
+    const tgt = targetPoint.value
+    const headingPos = Cesium.Cartesian3.fromDegrees(tgt.lon, tgt.lat, 0)
+    const origin = Cesium.Cartesian3.fromDegrees(obs.lon, obs.lat, 0)
+    const dir = Cesium.Cartesian3.subtract(headingPos, origin, new Cesium.Cartesian3())
+    const h = Math.atan2(dir.x, dir.y)
+    fpEnter(viewer, { lon: obs.lon, lat: obs.lat, groundHeight: obs.groundHeight }, { heading: h })
   }
 }
 
 function recomputeViewshed() {
   viewshedEntities.forEach(e => viewer.entities.remove(e))
   viewshedEntities = []
-  wallEntities.forEach(e => viewer.entities.remove(e))
-  wallEntities = []
-  firePointEntities.forEach(e => viewer.entities.remove(e))
-  firePointEntities = []
+  domeEntities.forEach(e => viewer.entities.remove(e))
+  domeEntities = []
+  clearGPUViewshed()
 
   const points = observerPoints.value
   if (points.length === 0) return
 
+  if (visualMode.value === 'face') {
+    runGPUAll()
+    return
+  }
   runAllViewsheds(points)
+}
+
+function addDome(p) {
+  const r = maxDistance.value
+  const pos = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.groundHeight || 0)
+  const dome = viewer.entities.add({
+    position: pos,
+    ellipsoid: {
+      radii: new Cesium.Cartesian3(r, r, r),
+      material: new Cesium.Color(0.2, 0.6, 1.0, 0.06),
+      outline: true,
+      outlineColor: new Cesium.Color(0.3, 0.7, 1.0, 0.35),
+      outlineWidth: 2,
+      slicePartitions: 96,
+      stackPartitions: 48,
+    },
+  })
+  domeEntities.push(dome)
+  const groundCircle = viewer.entities.add({
+    position: pos,
+    ellipse: {
+      semiMajorAxis: r,
+      semiMinorAxis: r,
+      material: Cesium.Color.TRANSPARENT,
+      outline: true,
+      outlineColor: new Cesium.Color(0.4, 0.8, 1.0, 0.5),
+      outlineWidth: 2,
+      height: 0,
+    },
+  })
+  domeEntities.push(groundCircle)
+}
+
+async function runGPUAll() {
+  clearGPUViewshed()
+  viewshedEntities.forEach(e => viewer.entities.remove(e))
+  viewshedEntities = []
+  const points = observerPoints.value
+  loading.value = true
+  try {
+    points.forEach(p => {
+      runGPUViewshed(viewer, {
+        centerLon: p.lon, centerLat: p.lat,
+        observerHeight: observerHeight.value,
+        maxDistance: maxDistance.value,
+      })
+    })
+    points.forEach(p => addDome(p))
+  } finally {
+    loading.value = false
+  }
 }
 
 async function runAllViewsheds(points) {
   loading.value = true
   try {
-    await Promise.all(points.map(p => computeViewshed(p.lon, p.lat, p.color)))
-    if (showFirePoints.value) {
-      await runFirePointSimulation(points)
+    await Promise.all(points.map(p => computeViewshed(viewer, {
+      centerLon: p.lon, centerLat: p.lat,
+      observerHeight: observerHeight.value, maxDistance: maxDistance.value, stepSize: stepSize.value,
+      pointColor: p.color,
+      viewshedEntities, targetHeight: 0,
+    })))
+    points.forEach(p => addDome(p))
+    if (showFirePoints.value && store.aoi) {
+      const fireResult = await runFirePointSimulation(viewer, {
+        towerPoints: points, observerHeight: observerHeight.value,
+        maxDistance: maxDistance.value, firePointCount: firePointCount.value, smokeHeight: smokeHeight.value,
+        aoi: store.aoi, firePointEntities,
+        getHeightAtPosition, isPointVisibleFrom,
+        addFireMarker,
+        firePoints: firePointPositions.value,
+      })
+      firePointEntities = fireResult.markers
+      if (!firePointPositions.value) {
+        firePointPositions.value = fireResult.firePoints
+      }
+      viewshedStats.value = { ...viewshedStats.value, ...fireResult.stats }
     }
   } finally {
     loading.value = false
@@ -446,69 +710,16 @@ async function runAllViewsheds(points) {
 
 function createObserverMarker(point, idx) {
   if (observerEntities[idx]) {
-    observerEntities[idx].el.remove()
-    const wmIdx = watchtowerMarkers.indexOf(observerEntities[idx])
-    if (wmIdx >= 0) watchtowerMarkers.splice(wmIdx, 1)
+    removeMarker(observerEntities[idx])
   }
-  const el = document.createElement('div')
-  el.className = 'village-marker'
-  el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (point.name || '') + '</span>'
-  viewer.container.appendChild(el)
-  const marker = { el, position: Cesium.Cartesian3.fromDegrees(point.lon, point.lat) }
+  const marker = addWatchtower(point.lon, point.lat, point.name || '', point.groundHeight || 0)
   observerEntities[idx] = marker
-  watchtowerMarkers.push(marker)
 }
 
 function createTargetMarker(lon, lat) {
-  if (targetEntity) viewer.entities.remove(targetEntity)
+  if (targetMarker) { removeMarker(targetMarker); targetMarker = null }
   const groundH = targetPoint.value?.groundHeight || 0
-  targetEntity = viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH),
-    point: {
-      pixelSize: 12,
-      color: Cesium.Color.GOLD,
-      outlineColor: Cesium.Color.WHITE,
-      outlineWidth: 2,
-      heightReference: Cesium.HeightReference.NONE,
-    },
-    label: {
-      text: '目标点',
-      font: '12px sans-serif',
-      pixelOffset: new Cesium.Cartesian2(0, -20),
-      showBackground: true,
-      backgroundColor: Cesium.Color.GOLDENROD,
-    },
-  })
-}
-
-async function getHeightAtPosition(lon, lat) {
-  const key = `${lon.toFixed(5)},${lat.toFixed(5)}`
-  if (getHeightAtPosition._cache && getHeightAtPosition._cache.has(key)) {
-    return getHeightAtPosition._cache.get(key)
-  }
-  const cartographic = Cesium.Cartographic.fromDegrees(lon, lat, 0)
-  const result = await Cesium.sampleTerrain(viewer.terrainProvider, 12, [cartographic])
-  const h = result[0].height || 0
-  if (!getHeightAtPosition._cache) getHeightAtPosition._cache = new Map()
-  getHeightAtPosition._cache.set(key, h)
-  return h
-}
-getHeightAtPosition._cache = null
-
-async function getPickInfo(click) {
-  let cartesian = viewer.scene.pickPosition(click.position)
-  if (!Cesium.defined(cartesian)) {
-    const ray = viewer.camera.getPickRay(click.position)
-    if (Cesium.defined(ray)) {
-      try { cartesian = viewer.scene.globe.pick(ray, viewer.scene) } catch (e) {}
-    }
-  }
-  if (!Cesium.defined(cartesian)) return null
-  const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
-  const lon = Cesium.Math.toDegrees(cartographic.longitude)
-  const lat = Cesium.Math.toDegrees(cartographic.latitude)
-  const groundH = await getHeightAtPosition(lon, lat)
-  return { lon, lat, groundH }
+  targetMarker = addCircleMarker(lon, lat, '目标', groundH)
 }
 
 async function handleMouseMove(movement) {
@@ -526,357 +737,6 @@ async function handleMouseMove(movement) {
   const lat = Cesium.Math.toDegrees(cartographic.latitude)
   const height = cartographic.height
   hoverInfo.value = { lon, lat, height }
-}
-
-async function computeViewshed(centerLon, centerLat, pointColor) {
-  const groundHeight = await getHeightAtPosition(centerLon, centerLat)
-  const totalHeight = groundHeight + observerHeight.value
-  const steps = Math.floor(360 / 2)
-
-  const angles = []
-  for (let i = 0; i < steps; i++) {
-    angles.push(Cesium.Math.toRadians(i * 2))
-  }
-
-  const BATCH_SIZE = 10
-  for (let i = 0; i < angles.length; i += BATCH_SIZE) {
-    const batch = angles.slice(i, i + BATCH_SIZE)
-    await Promise.all(batch.map(angle =>
-      raycastAndDraw(centerLon, centerLat, totalHeight, angle, pointColor)
-    ))
-  }
-}
-
-async function raycastAndDraw(originLon, originLat, originHeight, angle, pointColor) {
-  const step = stepSize.value
-  const cosLat = Math.cos(Cesium.Math.toRadians(originLat))
-  const visColor = Cesium.Color.fromCssColorString(pointColor || '#4ade80').withAlpha(0.5)
-  const hidColor = Cesium.Color.RED.withAlpha(0.3)
-
-  const samplePoints = []
-  const numSteps = Math.floor(maxDistance.value / step)
-  for (let i = 1; i <= numSteps; i++) {
-    const dist = i * step
-    const dLat = (dist / 111000) * Math.cos(angle)
-    const dLon = (dist / (111000 * cosLat)) * Math.sin(angle)
-    samplePoints.push({
-      lon: originLon + dLon,
-      lat: originLat + dLat,
-      dist,
-    })
-  }
-
-  if (samplePoints.length === 0) return
-
-  const cartographics = samplePoints.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat, 0))
-  const results = await Cesium.sampleTerrain(viewer.terrainProvider, 12, cartographics)
-
-  function drawSegment(endLon, endLat, visible) {
-    const color = visible ? visColor : hidColor
-    const entity = viewer.entities.add({
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([segStartLon, segStartLat, endLon, endLat]),
-        width: 2,
-        material: color,
-        clampToGround: true,
-      },
-    })
-    viewshedEntities.push(entity)
-  }
-
-  let maxElevationAngle = -Infinity
-  let prevVisible = true
-  let segStartLon = originLon
-  let segStartLat = originLat
-
-  for (let i = 0; i < samplePoints.length; i++) {
-    const terrainH = results[i].height || 0
-    const dist = samplePoints[i].dist
-    const elevationAngle = Math.atan2(terrainH - originHeight, dist)
-    const visible = elevationAngle > maxElevationAngle
-
-    if (visible) {
-      maxElevationAngle = elevationAngle
-    }
-
-    if (visible !== prevVisible) {
-      drawSegment(samplePoints[i].lon, samplePoints[i].lat, prevVisible)
-      if (showOcclusionWalls.value && prevVisible && !visible) {
-        addOcclusionWall(samplePoints[i].lon, samplePoints[i].lat, dist, angle, terrainH, maxElevationAngle, originHeight, cosLat)
-      }
-      segStartLon = samplePoints[i].lon
-      segStartLat = samplePoints[i].lat
-      prevVisible = visible
-    }
-  }
-
-  const lastPoint = samplePoints[samplePoints.length - 1]
-  drawSegment(lastPoint.lon, lastPoint.lat, prevVisible)
-}
-
-function addOcclusionWall(lon, lat, dist, rayAngle, terrainH, maxElevAngle, originHeight, cosLat) {
-  const losH = originHeight + Math.tan(maxElevAngle) * dist
-  if (losH <= terrainH + 2) return
-
-  const halfWidth = stepSize.value * 0.8
-  const perp = rayAngle + Math.PI / 2
-  const dLatHalf = (halfWidth / 111000) * Math.cos(perp)
-  const dLonHalf = (halfWidth / (111000 * cosLat)) * Math.sin(perp)
-
-  wallEntities.push(viewer.entities.add({
-    wall: {
-      positions: Cesium.Cartesian3.fromDegreesArray([
-        lon - dLonHalf, lat - dLatHalf,
-        lon + dLonHalf, lat + dLatHalf,
-      ]),
-      minimumHeights: [terrainH, terrainH],
-      maximumHeights: [losH, losH],
-      material: Cesium.Color.LIGHTGRAY.withAlpha(0.25),
-      outline: true,
-      outlineColor: Cesium.Color.GRAY.withAlpha(0.4),
-    },
-  }))
-}
-
-// ==================== 火点探测模拟 ====================
-async function isPointVisibleFrom(fromLon, fromLat, fromHeight, toLon, toLat, toHeightAboveGround) {
-  const dLat = (toLat - fromLat) * 111000
-  const dLon = (toLon - fromLon) * 111000 * Math.cos(Cesium.Math.toRadians((fromLat + toLat) / 2))
-  const totalDist = Math.sqrt(dLat * dLat + dLon * dLon)
-  const sampleCount = Math.max(10, Math.floor(totalDist / 100))
-
-  const samplePoints = []
-  for (let i = 1; i <= sampleCount; i++) {
-    const t = i / sampleCount
-    samplePoints.push(Cesium.Cartographic.fromDegrees(
-      fromLon + (toLon - fromLon) * t,
-      fromLat + (toLat - fromLat) * t,
-      0
-    ))
-  }
-
-  const toCartographic = Cesium.Cartographic.fromDegrees(toLon, toLat, 0)
-  const allCartographics = [...samplePoints, toCartographic]
-  const results = await Cesium.sampleTerrain(viewer.terrainProvider, 12, allCartographics)
-  const toGroundH = results[results.length - 1].height || 0
-  const toTotalH = toGroundH + toHeightAboveGround
-
-  for (let i = 0; i < sampleCount; i++) {
-    const t = (i + 1) / sampleCount
-    const terrainH = results[i].height || 0
-    const losH = fromHeight + (toTotalH - fromHeight) * t
-    if (terrainH > losH) return false
-  }
-  return true
-}
-
-async function runFirePointSimulation(towerPoints) {
-  firePointEntities.forEach(e => viewer.entities.remove(e))
-  firePointEntities = []
-
-  if (towerPoints.length === 0) return
-
-  const heights = []
-  for (const p of towerPoints) {
-    const gnd = await getHeightAtPosition(p.lon, p.lat)
-    heights.push(gnd + observerHeight.value)
-  }
-
-  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity
-  for (const p of towerPoints) {
-    minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat)
-    minLon = Math.min(minLon, p.lon); maxLon = Math.max(maxLon, p.lon)
-  }
-  const margin = maxDistance.value / 111000
-  minLat -= margin; maxLat += margin
-  const cosMid = Math.cos(Cesium.Math.toRadians((minLat + maxLat) / 2))
-  minLon -= margin / cosMid
-  maxLon += margin / cosMid
-
-  const count = firePointCount.value
-  let detected = 0, missed = 0
-
-  const firePoints = []
-  for (let i = 0; i < count; i++) {
-    firePoints.push({
-      lon: minLon + Math.random() * (maxLon - minLon),
-      lat: minLat + Math.random() * (maxLat - minLat),
-    })
-  }
-
-  for (const fp of firePoints) {
-    let visible = false
-    for (let i = 0; i < towerPoints.length; i++) {
-      if (await isPointVisibleFrom(towerPoints[i].lon, towerPoints[i].lat, heights[i], fp.lon, fp.lat, smokeHeight.value)) {
-        visible = true
-        break
-      }
-    }
-
-    const color = visible
-      ? Cesium.Color.LIME.withAlpha(0.9)
-      : Cesium.Color.RED.withAlpha(0.8)
-    const label = visible ? '✓' : '✗'
-
-    firePointEntities.push(viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(fp.lon, fp.lat),
-      point: {
-        pixelSize: 8,
-        color,
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: 1,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-      label: {
-        text: label,
-        font: '12px sans-serif',
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        style: Cesium.LabelStyle.FILL,
-        pixelOffset: new Cesium.Cartesian2(0, -12),
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-    }))
-
-    if (visible) detected++; else missed++
-  }
-
-  viewshedStats.value = {
-    ...viewshedStats.value,
-    fireTotal: count,
-    fireDetected: detected,
-    fireMissed: missed,
-  }
-}
-
-// ==================== 点对点通视分析 ====================
-async function computeLineOfSight() {
-  losEntities.forEach(e => viewer.entities.remove(e))
-  losEntities = []
-  losResult.value = null
-
-  const obs = activeObserverPoint.value
-  const tgt = targetPoint.value
-  if (!obs || !tgt) return
-
-  const obsGround = await getHeightAtPosition(obs.lon, obs.lat)
-  const tgtGround = await getHeightAtPosition(tgt.lon, tgt.lat)
-  const obsHeight = obsGround + observerHeight.value
-  const tgtHeight = tgtGround + targetHeight.value
-
-  const dLat = (tgt.lat - obs.lat) * 111000
-  const dLon = (tgt.lon - obs.lon) * 111000 * Math.cos(Cesium.Math.toRadians((obs.lat + tgt.lat) / 2))
-  const totalDist = Math.sqrt(dLat * dLat + dLon * dLon)
-
-  const sampleCount = Math.max(20, Math.floor(totalDist / 100))
-  const samplePoints = []
-  for (let i = 1; i <= sampleCount; i++) {
-    const t = i / sampleCount
-    samplePoints.push({
-      lon: obs.lon + (tgt.lon - obs.lon) * t,
-      lat: obs.lat + (tgt.lat - obs.lat) * t,
-      t,
-    })
-  }
-
-  const cartographics = samplePoints.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat, 0))
-  const results = await Cesium.sampleTerrain(viewer.terrainProvider, 12, cartographics)
-
-  let blocked = false
-  let blockDist = 0
-  let blockLon = 0, blockLat = 0
-
-  for (let i = 0; i < samplePoints.length; i++) {
-    const terrainH = results[i].height || 0
-    const t = samplePoints[i].t
-    const losH = obsHeight + (tgtHeight - obsHeight) * t
-
-    if (terrainH > losH) {
-      blocked = true
-      blockDist = totalDist * t
-      blockLon = samplePoints[i].lon
-      blockLat = samplePoints[i].lat
-      break
-    }
-  }
-
-  losResult.value = {
-    visible: !blocked,
-    blockDist,
-    totalDist,
-  }
-
-  // 绘制通视线
-  const lineColor = blocked ? Cesium.Color.RED.withAlpha(0.8) : Cesium.Color.GREEN.withAlpha(0.8)
-  const lineWidth = blocked ? 3 : 4
-
-  if (blocked) {
-    // 可见段：绿色
-    losEntities.push(viewer.entities.add({
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([obs.lon, obs.lat, blockLon, blockLat]),
-        width: 4,
-        material: Cesium.Color.GREEN.withAlpha(0.8),
-        clampToGround: true,
-      },
-    }))
-    // 遮挡段：红色虚线
-    losEntities.push(viewer.entities.add({
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([blockLon, blockLat, tgt.lon, tgt.lat]),
-        width: 3,
-        material: new Cesium.PolylineDashMaterialProperty({ color: Cesium.Color.RED.withAlpha(0.6), dashLength: 8 }),
-        clampToGround: true,
-      },
-    }))
-    // 遮挡点标记
-    losEntities.push(viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(blockLon, blockLat),
-      point: {
-        pixelSize: 8,
-        color: Cesium.Color.RED,
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: 2,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-      label: {
-        text: '遮挡点',
-        font: '11px sans-serif',
-        pixelOffset: new Cesium.Cartesian2(0, -16),
-        showBackground: true,
-        backgroundColor: Cesium.Color.RED,
-      },
-    }))
-  } else {
-    // 全程可见：绿色粗线
-    losEntities.push(viewer.entities.add({
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([obs.lon, obs.lat, tgt.lon, tgt.lat]),
-        width: 4,
-        material: Cesium.Color.GREEN.withAlpha(0.8),
-        clampToGround: true,
-      },
-    }))
-  }
-
-  // 飞到能看全两点的视角
-  const midLon = (obs.lon + tgt.lon) / 2
-  const midLat = (obs.lat + tgt.lat) / 2
-  const camDist = Math.max(totalDist * 1.5, 5000)
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(midLon, midLat, camDist),
-    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0 },
-    duration: 1.5,
-  })
-}
-
-function flyToPoint(lon, lat) {
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(lon, lat, 15000),
-    orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
-    duration: 2,
-  })
 }
 
 function flyToActiveObserver() {
@@ -926,6 +786,16 @@ function removeLockCamera() {
 
 function resetCameraConstraints() {
   removeLockCamera()
+  if (isFirstPerson.value) fpExit(viewer)
+}
+
+function enterFirstPerson() {
+  const p = activeObserverPoint.value
+  if (!p) return
+  removeLockCamera()
+  // 瞭望塔模式：加上塔高，站在塔顶看
+  const offset = analysisMode.value === 'viewshed' ? observerHeight.value : 0
+  fpEnter(viewer, { lon: p.lon, lat: p.lat, groundHeight: p.groundHeight }, { eyeHeightOffset: offset })
 }
 
 function handleKeyDown(e) {
@@ -946,27 +816,6 @@ function handleKeyDown(e) {
   }
 }
 
-function syncWatchtowerMarkers() {
-  const v = viewerStore.viewer
-  if (!v) return
-  watchtowerMarkers.forEach(m => {
-    const sp = v.scene.cartesianToCanvasCoordinates(m.position)
-    if (sp) {
-      m.el.style.left = sp.x + 'px'
-      m.el.style.top = sp.y + 'px'
-      m.el.style.display = 'flex'
-    } else {
-      m.el.style.display = 'none'
-    }
-  })
-}
-
-function clearWatchtowerMarkers() {
-  watchtowerMarkers.forEach(m => m.el.remove())
-  watchtowerMarkers = []
-  if (_watchtowerSyncHandler) { _watchtowerSyncHandler(); _watchtowerSyncHandler = null }
-}
-
 onMounted(() => {
   viewer = viewerStore.viewer
   if (!viewer) return
@@ -975,24 +824,7 @@ onMounted(() => {
       Cesium.CesiumTerrainProvider.fromIonAssetId(1),
     ),
   )
-if (store.aoi) {
-    const { minLat, maxLat, minLng, maxLng } = store.aoi
-    viewer.camera.flyTo({
-      destination: Cesium.Rectangle.fromDegrees(minLng, minLat, maxLng, maxLat),
-      duration: 1,
-    })
-  } else if (store.selectedEarthquake) {
-    const { lon, lat } = store.selectedEarthquake
-    viewer.camera.flyTo({
-      destination: Cesium.Rectangle.fromDegrees(lon - 0.3, lat - 0.3, lon + 0.3, lat + 0.3),
-      duration: 1,
-    })
-  } else {
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(117.10, 36.25, 20000),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-60), roll: 0 },
-    })
-  }
+  flyToAOI(viewer, { lon: 117.10, lat: 36.25, height: 20000 })
 
   hoverHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   hoverHandler.setInputAction(handleMouseMove, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
@@ -1000,11 +832,7 @@ if (store.aoi) {
 
   if (store.watchtowers && store.watchtowers.length > 0) {
     store.watchtowers.forEach((t, idx) => {
-      const el = document.createElement('div')
-      el.className = 'village-marker'
-      el.innerHTML = '<img src="./icons/observation-tower.svg" class="village-icon" alt="" /><span class="village-label">' + (t.name || '') + '</span>'
-      viewer.container.appendChild(el)
-      watchtowerMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(t.lng ?? t.lon, t.lat) })
+      addWatchtower(t.lng ?? t.lon, t.lat, t.name)
       observerPoints.value.push({
         lon: t.lng ?? t.lon,
         lat: t.lat,
@@ -1012,33 +840,30 @@ if (store.aoi) {
         groundHeight: t.groundHeight ?? t.elevation ?? 0,
         color: COLORS[idx % COLORS.length],
       })
+      // 同步全局编号，确保新加的不与已有重复
+      const numFromName = parseInt(t.name?.replace(/[^0-9]/g, ''), 10)
+      if (numFromName >= nextTowerId.value) nextTowerId.value = numFromName + 1
     })
   }
-  if (store.hazards && store.hazards.length > 0) {
-    store.hazards.forEach(v => {
-      const el = document.createElement('div')
-      el.className = 'village-marker'
-      el.innerHTML = '<img src="./icons/village.svg" class="village-icon" alt="" /><span class="village-label">' + (v.name || '') + '</span>'
-      viewer.container.appendChild(el)
-      watchtowerMarkers.push({ el, position: Cesium.Cartesian3.fromDegrees(v.lng ?? v.lon, v.lat) })
-    })
-  }
-  if (watchtowerMarkers.length > 0) {
-    _watchtowerSyncHandler = viewer.scene.postRender.addEventListener(syncWatchtowerMarkers)
-  }
+  loadVillages(store.hazards)
 })
 
 onBeforeUnmount(() => {
+  if (isFirstPerson.value) fpExit(viewer)
   if (clickHandler) clickHandler.destroy()
   if (hoverHandler) hoverHandler.destroy()
   if (chartInstance) chartInstance.dispose()
   document.removeEventListener('keydown', handleKeyDown)
   clearAnalysis()
-  clearWatchtowerMarkers()
+  clearAll()
   clickHandler = null
   hoverHandler = null
   chartInstance = null
   viewer = null
+})
+
+onDeactivated(() => {
+  clearAnalysis()
 })
 </script>
 
@@ -1240,6 +1065,39 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 
+.manual-coords {
+  margin-bottom: 6px;
+}
+.coord-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.coord-label {
+  font-size: 11px;
+  color: #8b7355;
+  width: 42px;
+  flex-shrink: 0;
+}
+.coord-input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid rgba(45, 138, 78, 0.2);
+  border-radius: 4px;
+  background: rgba(255,255,255,0.8);
+  color: #3d3929;
+  font-size: 11px;
+  outline: none;
+}
+.coord-input:focus {
+  border-color: #f59e0b;
+}
+.coord-input-sm {
+  flex: 0.6;
+}
+
 .preset-btn {
   padding: 4px 10px;
   border: 1px solid rgba(45, 138, 78, 0.2);
@@ -1432,6 +1290,9 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5));
+}
+.village-icon-black {
+  filter: brightness(0) drop-shadow(0 1px 2px rgba(0,0,0,0.5));
 }
 .village-label {
   color: #fff;

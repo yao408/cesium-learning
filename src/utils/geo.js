@@ -36,6 +36,23 @@ export function wgs84ToGCJ02(lat, lng) {
 }
 
 /**
+ * GCJ-02 → WGS84 坐标转换（高德/腾讯 → GPS）
+ */
+export function gcj02ToWGS84(gcjLat, gcjLng) {
+  if (gcjLng < 72.004 || gcjLng > 137.8347 || gcjLat < 0.8293 || gcjLat > 55.8271) {
+    return { lat: gcjLat, lng: gcjLng }
+  }
+  let wgsLat = gcjLat
+  let wgsLng = gcjLng
+  for (let i = 0; i < 5; i++) {
+    const wgs = wgs84ToGCJ02(wgsLat, wgsLng)
+    wgsLat = gcjLat - (wgs.lat - wgsLat)
+    wgsLng = gcjLng - (wgs.lng - wgsLng)
+  }
+  return { lat: wgsLat, lng: wgsLng }
+}
+
+/**
  * Haversine 距离计算（米）
  */
 export function haversineDistance(lat1, lng1, lat2, lng2) {

@@ -67,33 +67,13 @@
         <div class="path-info">路径点: {{ userPath.length }} 个</div>
         <div class="path-style-box">
           <div class="path-style-title">🎨 路径样式</div>
-          <label>颜色: <input type="color" :value="activeSlot ? activeSlot.color : '#e74c3c'" @input="$emit('updatePathColor', $event.target.value)" class="color-picker"></label>
-          <div class="style-toggle">
-            <button :class="{ active: !activeSlot || activeSlot.pathStyle === 'solid' }" @click="$emit('updatePathStyle', 'solid')">实心</button>
-            <button :class="{ active: activeSlot && activeSlot.pathStyle === 'outline' }" @click="$emit('updatePathStyle', 'outline')">镂空</button>
-          </div>
-          <template v-if="activeSlot && activeSlot.pathStyle === 'outline'">
-            <label>内芯宽: {{ activeSlot ? activeSlot.pathWidth : 6 }}px
-              <input type="range" :value="activeSlot ? activeSlot.pathWidth : 6" min="2" max="30" @input="$emit('updatePathWidth', Number($event.target.value))">
-            </label>
-            <label>内芯透明: {{ ((activeSlot ? activeSlot.pathOpacity : 0.7) * 100).toFixed(0) }}%
-              <input type="range" :value="activeSlot ? activeSlot.pathOpacity : 0.7" min="0.1" max="1" step="0.05" @input="$emit('updatePathOpacity', Number($event.target.value))">
-            </label>
-            <label>外框宽: {{ activeSlot ? activeSlot.pathOutlineWidth : 2 }}px
-              <input type="range" :value="activeSlot ? activeSlot.pathOutlineWidth : 2" min="0" max="10" @input="$emit('updatePathOutlineWidth', Number($event.target.value))">
-            </label>
-            <label>外框透明: {{ ((activeSlot ? activeSlot.pathOutlineOpacity : 0.9) * 100).toFixed(0) }}%
-              <input type="range" :value="activeSlot ? activeSlot.pathOutlineOpacity : 0.9" min="0.1" max="1" step="0.05" @input="$emit('updatePathOutlineOpacity', Number($event.target.value))">
-            </label>
-          </template>
-          <template v-if="!activeSlot || activeSlot.pathStyle === 'solid'">
-            <label>线宽: {{ activeSlot ? activeSlot.pathWidth : 4 }}px
-              <input type="range" :value="activeSlot ? activeSlot.pathWidth : 4" min="1" max="20" @input="$emit('updatePathWidth', Number($event.target.value))">
-            </label>
-            <label>透明度: {{ ((activeSlot ? activeSlot.pathOpacity : 0.7) * 100).toFixed(0) }}%
-              <input type="range" :value="activeSlot ? activeSlot.pathOpacity : 0.7" min="0.1" max="1" step="0.05" @input="$emit('updatePathOpacity', Number($event.target.value))">
-            </label>
-          </template>
+          <label>颜色: <input type="color" :value="activeSlot ? activeSlot.color : '#38bdf8'" @input="$emit('updatePathColor', $event.target.value)" class="color-picker"></label>
+          <label>线宽: {{ activeSlot ? activeSlot.pathWidth : 8 }}px
+            <input type="range" :value="activeSlot ? activeSlot.pathWidth : 8" min="1" max="20" @input="$emit('updatePathWidth', Number($event.target.value))">
+          </label>
+          <label>透明度: {{ ((activeSlot ? activeSlot.pathOpacity : 0.4) * 100).toFixed(0) }}%
+            <input type="range" :value="activeSlot ? activeSlot.pathOpacity : 0.4" min="0.1" max="1" step="0.05" @input="$emit('updatePathOpacity', Number($event.target.value))">
+          </label>
         </div>
         <button
           v-if="isSimulating"
@@ -147,7 +127,7 @@ export default {
     'startSimulation', 'pauseSimulation', 'stopSimulation', 'update:vehicleSpeed',
     'startRoutePlanning', 'cancelRoutePlanning', 'selectRoute', 'confirmRoute',
     'addVehicle', 'removeVehicle', 'switchVehicle',
-    'updatePathColor', 'updatePathWidth', 'updatePathOpacity', 'updatePathStyle', 'updatePathOutlineWidth', 'updatePathOutlineOpacity',
+    'updatePathColor', 'updatePathWidth', 'updatePathOpacity',
   ],
   computed: {
     activeSlot() {

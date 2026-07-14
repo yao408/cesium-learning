@@ -1,0 +1,781 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900">
+  <defs>
+    <!-- ============ 地图底色渐变 ============ -->
+    <radialGradient id="mapBg" cx="55%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1a2d4a"/>
+      <stop offset="40%" stop-color="#0f1e36"/>
+      <stop offset="100%" stop-color="#050d1c"/>
+    </radialGradient>
+
+    <!-- ============ 地形阴影渐变 ============ -->
+    <radialGradient id="terrainShade" cx="40%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#2d4a3a" stop-opacity="0.7"/>
+      <stop offset="50%" stop-color="#1a3040" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#0a1a2a" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 地震中心主渐变 ============ -->
+    <radialGradient id="quakeGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="8%" stop-color="#ff5050"/>
+      <stop offset="30%" stop-color="#ff3b3b"/>
+      <stop offset="60%" stop-color="#c02020" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 地震外围光晕 ============ -->
+    <radialGradient id="quakeHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff3b3b" stop-opacity="0"/>
+      <stop offset="60%" stop-color="#ff6b6b" stop-opacity="0.04"/>
+      <stop offset="85%" stop-color="#ff9a9a" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#ffcccc" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 路径阴影 ============ -->
+    <filter id="pathGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- ============ 光点光晕 ============ -->
+    <filter id="dotGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+
+    <!-- ============ 瞭望塔阴影 ============ -->
+    <filter id="towerShadow" x="-100%" y="-100%" width="300%" height="300%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.6"/>
+    </filter>
+
+    <!-- ============ 脉冲圆环 ============ -->
+    <radialGradient id="ringGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="92%" stop-color="#ff3b3b" stop-opacity="0"/>
+      <stop offset="96%" stop-color="#ff6b6b" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 发光径向渐变 - 用于地震波 ============ -->
+    <radialGradient id="waveR1" cx="50%" cy="50%" r="50%">
+      <stop offset="85%" stop-color="#ff3b3b" stop-opacity="0"/>
+      <stop offset="95%" stop-color="#ff5050" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="waveR2" cx="50%" cy="50%" r="50%">
+      <stop offset="88%" stop-color="#ff3b3b" stop-opacity="0"/>
+      <stop offset="96%" stop-color="#ff8080" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="waveR3" cx="50%" cy="50%" r="50%">
+      <stop offset="90%" stop-color="#ff3b3b" stop-opacity="0"/>
+      <stop offset="97%" stop-color="#ffb0b0" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#ff3b3b" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- ============ 文字阴影 ============ -->
+    <filter id="textShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#000" flood-opacity="0.8"/>
+    </filter>
+
+    <!-- ============ 网格线渐变（低透明度） ============ -->
+    <pattern id="gridPattern" x="0" y="0" width="80" height="80" patternUnits="userSpaceOnUse">
+      <path d="M 80 0 L 0 0 0 80" fill="none" stroke="#1e40af" stroke-width="0.3" stroke-opacity="0.15"/>
+    </pattern>
+
+    <!-- ============ 点状纹理地形 ============ -->
+    <pattern id="dotTexture" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="0.5" fill="#3a5f8a" fill-opacity="0.15"/>
+    </pattern>
+
+    <!-- ============ 路径发光 ============ -->
+    <linearGradient id="pathRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff6b6b"/>
+      <stop offset="50%" stop-color="#e74c3c"/>
+      <stop offset="100%" stop-color="#ff9a9a"/>
+    </linearGradient>
+    <linearGradient id="pathOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5a623"/>
+      <stop offset="50%" stop-color="#f39c12"/>
+      <stop offset="100%" stop-color="#ffcc66"/>
+    </linearGradient>
+    <linearGradient id="pathGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="50%" stop-color="#27ae60"/>
+      <stop offset="100%" stop-color="#86efac"/>
+    </linearGradient>
+
+    <!-- ============ 弧面蓝色视锥 ============ -->
+    <radialGradient id="viewconeBlue" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#2563eb" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1e40af" stop-opacity="0.05"/>
+    </radialGradient>
+
+    <!-- ============ 面板玻璃质感 ============ -->
+    <linearGradient id="panelGlass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(30, 41, 59, 0.92)"/>
+      <stop offset="100%" stop-color="rgba(15, 23, 42, 0.88)"/>
+    </linearGradient>
+
+    <!-- ============ 面板顶部高光线 ============ -->
+    <linearGradient id="panelHighlight" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- ============ 绿色统计卡 ============ -->
+    <linearGradient id="statGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+
+    <!-- ============ 蓝色统计卡 ============ -->
+    <linearGradient id="statBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+
+    <!-- ============ 角标装饰 ============ -->
+    <linearGradient id="accentLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+
+    <!-- ============ 瞭望塔图标 - SVG 定义 ============ -->
+    <symbol id="watchtower" viewBox="0 0 100 120">
+      <!-- 阴影底座 -->
+      <ellipse cx="50" cy="112" rx="28" ry="5" fill="#000" fill-opacity="0.4"/>
+      <!-- 塔身 -->
+      <path d="M 35 105 L 38 55 L 62 55 L 65 105 Z" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+      <!-- 塔身上下横条 -->
+      <rect x="34" y="70" width="32" height="3" fill="#64748b"/>
+      <rect x="33" y="88" width="34" height="3" fill="#64748b"/>
+      <!-- 塔身骨架 -->
+      <line x1="50" y1="55" x2="50" y2="105" stroke="#334155" stroke-width="1.5"/>
+      <line x1="42" y1="65" x2="58" y2="95" stroke="#334155" stroke-width="0.8"/>
+      <line x1="58" y1="65" x2="42" y2="95" stroke="#334155" stroke-width="0.8"/>
+      <!-- 瞭望房 -->
+      <rect x="32" y="35" width="36" height="22" fill="#334155" stroke="#64748b" stroke-width="1"/>
+      <!-- 窗户 -->
+      <rect x="38" y="40" width="8" height="6" fill="#38bdf8" fill-opacity="0.85"/>
+      <rect x="54" y="40" width="8" height="6" fill="#38bdf8" fill-opacity="0.85"/>
+      <!-- 房顶 -->
+      <polygon points="28,35 72,35 68,20 32,20" fill="#ef4444"/>
+      <!-- 房顶高光 -->
+      <polygon points="35,35 65,35 63,25 37,25" fill="#f87171" opacity="0.6"/>
+      <!-- 天线 -->
+      <line x1="50" y1="20" x2="50" y2="8" stroke="#cbd5e1" stroke-width="1.5"/>
+      <circle cx="50" cy="6" r="3" fill="#ef4444"/>
+      <circle cx="50" cy="6" r="1.5" fill="#fca5a5"/>
+    </symbol>
+
+    <!-- ============ 指挥中心图标 ============ -->
+    <symbol id="commandCenter" viewBox="0 0 80 80">
+      <circle cx="40" cy="40" r="32" fill="#0f172a" stroke="#4ade80" stroke-width="2"/>
+      <circle cx="40" cy="40" r="24" fill="#166534" fill-opacity="0.4"/>
+      <circle cx="40" cy="40" r="16" fill="#22c55e" fill-opacity="0.3"/>
+      <polygon points="40,22 48,40 40,58 32,40" fill="#4ade80"/>
+      <circle cx="40" cy="40" r="5" fill="#fff"/>
+    </symbol>
+
+    <!-- ============ 村庄图标 ============ -->
+    <symbol id="villageIcon" viewBox="0 0 50 50">
+      <circle cx="25" cy="25" r="16" fill="#f59e0b"/>
+      <circle cx="25" cy="25" r="11" fill="#fff"/>
+      <circle cx="25" cy="25" r="7" fill="#f59e0b"/>
+      <circle cx="25" cy="25" r="3" fill="#fff"/>
+    </symbol>
+  </defs>
+
+  <!-- ==================== 地图背景 ==================== -->
+  <rect width="1600" height="900" fill="url(#mapBg)"/>
+  <rect width="1600" height="900" fill="url(#gridPattern)"/>
+  <rect width="1600" height="900" fill="url(#dotTexture)"/>
+
+  <!-- ==================== 地形轮廓（抽象山形） ==================== -->
+  <g opacity="0.4">
+    <path d="M 0,750 Q 200,600 350,680 T 700,620 Q 850,540 1000,600 T 1400,550 Q 1500,520 1600,600 L 1600,900 L 0,900 Z"
+          fill="#1a3d5c"/>
+    <path d="M 0,800 Q 300,700 500,760 T 900,720 Q 1100,680 1300,750 Q 1450,780 1600,760 L 1600,900 L 0,900 Z"
+          fill="#0f2d45"/>
+  </g>
+
+  <!-- 地形山脉线（装饰性） -->
+  <g opacity="0.25" stroke="#3a7a9e" fill="none" stroke-width="0.8">
+    <path d="M 100,400 Q 300,280 500,350 T 900,300 Q 1100,240 1300,320 Q 1450,380 1600,340"/>
+    <path d="M 0,480 Q 200,380 400,440 T 800,400 Q 1000,350 1200,420 Q 1400,480 1600,430"/>
+    <path d="M 100,560 Q 350,480 550,530 T 950,500 Q 1150,470 1350,520 Q 1500,550 1600,520"/>
+  </g>
+
+  <!-- 河流装饰 -->
+  <path d="M 0,680 Q 200,650 400,700 Q 600,760 800,720 Q 1000,680 1200,740 Q 1400,800 1600,760"
+        fill="none" stroke="#2563eb" stroke-width="3" stroke-opacity="0.35" stroke-linecap="round"/>
+  <path d="M 0,780 Q 200,750 400,800 Q 650,870 900,820 Q 1150,780 1400,840 Q 1500,860 1600,840"
+        fill="none" stroke="#2563eb" stroke-width="2" stroke-opacity="0.25" stroke-linecap="round"/>
+
+  <!-- 城市名（装饰性） -->
+  <g font-family="'PingFang SC','Microsoft YaHei',sans-serif" fill="#64748b" font-size="14" opacity="0.6">
+    <text x="200" y="350">成都</text>
+    <text x="400" y="500">眉山</text>
+    <text x="700" y="280">绵阳</text>
+    <text x="1100" y="380">德阳</text>
+    <text x="1350" y="520">广元</text>
+    <text x="300" y="620">乐山</text>
+    <text x="850" y="620">资中</text>
+  </g>
+
+  <!-- ==================== 地震中心（画面偏左） ==================== -->
+  <g transform="translate(520, 470)">
+    <!-- 外圈大光晕 -->
+    <circle r="280" fill="url(#quakeHalo)"/>
+    <circle r="200" fill="url(#quakeHalo)" opacity="0.7"/>
+    <circle r="140" fill="url(#quakeHalo)" opacity="0.5"/>
+
+    <!-- 脉冲波环（4个不同大小的环） -->
+    <circle r="175" fill="url(#waveR1)" opacity="0.7"/>
+    <circle r="130" fill="url(#waveR2)" opacity="0.8"/>
+    <circle r="95" fill="url(#waveR3)" opacity="0.75"/>
+    <circle r="65" fill="url(#waveR1)" opacity="0.5"/>
+
+    <!-- 圆环描边 -->
+    <circle r="175" fill="none" stroke="#ff3b3b" stroke-width="1.5" stroke-opacity="0.7"/>
+    <circle r="130" fill="none" stroke="#ff6b6b" stroke-width="1.2" stroke-opacity="0.55"/>
+    <circle r="95" fill="none" stroke="#ff9a9a" stroke-width="1" stroke-opacity="0.4"/>
+    <circle r="65" fill="none" stroke="#ffb0b0" stroke-width="0.8" stroke-opacity="0.3"/>
+
+    <!-- 十字标记线 -->
+    <line x1="-210" y1="0" x2="-185" y2="0" stroke="#ff3b3b" stroke-width="2" stroke-opacity="0.8"/>
+    <line x1="185" y1="0" x2="210" y2="0" stroke="#ff3b3b" stroke-width="2" stroke-opacity="0.8"/>
+    <line x1="0" y1="-210" x2="0" y2="-185" stroke="#ff3b3b" stroke-width="2" stroke-opacity="0.8"/>
+    <line x1="0" y1="185" x2="0" y2="210" stroke="#ff3b3b" stroke-width="2" stroke-opacity="0.8"/>
+
+    <!-- 核心光点 -->
+    <circle r="45" fill="url(#quakeGradient)"/>
+    <circle r="28" fill="#ff3b3b" fill-opacity="0.95"/>
+    <circle r="16" fill="#fff"/>
+    <circle r="7" fill="#ff3b3b"/>
+
+    <!-- 标签 -->
+    <g transform="translate(0, -270)" filter="url(#textShadow)">
+      <rect x="-80" y="-22" width="160" height="32" rx="16" fill="#1e293b" stroke="#ff3b3b" stroke-width="1.5"/>
+      <circle cx="-58" cy="-6" r="5" fill="#ff3b3b"/>
+      <circle cx="-58" cy="-6" r="2.5" fill="#fff"/>
+      <text x="-45" y="-1" font-family="'PingFang SC','Microsoft YaHei',sans-serif" font-size="13" font-weight="700" fill="#fca5a5">地震中心 M 6.5</text>
+    </g>
+
+    <!-- 震级文本 -->
+    <g transform="translate(120, 50)" filter="url(#textShadow)">
+      <text font-family="'PingFang SC',sans-serif" font-size="48" font-weight="900" fill="#ff3b3b">6.5</text>
+      <text y="35" font-family="'PingFang SC',sans-serif" font-size="16" font-weight="600" fill="#fca5a5">MAGNITUDE</text>
+    </g>
+
+    <!-- 深度/时间信息 -->
+    <g transform="translate(210, -20)" filter="url(#textShadow)" opacity="0.9">
+      <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">深度 10 km</text>
+      <text y="16" font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">2008-05-12</text>
+    </g>
+  </g>
+
+  <!-- ==================== 三条路径（彩色） ==================== -->
+  <g>
+    <!-- 红色路径（左上 -> 地震中心） -->
+    <path d="M 120,300 Q 250,280 350,380 Q 420,430 520,470"
+          fill="none" stroke="url(#pathRed)" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
+    <path d="M 120,300 Q 250,280 350,380 Q 420,430 520,470"
+          fill="none" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-dasharray="3,10" opacity="0.5"/>
+
+    <!-- 橙色路径（上方 -> 地震中心） -->
+    <path d="M 430,120 Q 470,200 490,280 Q 510,370 520,470"
+          fill="none" stroke="url(#pathOrange)" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
+    <path d="M 430,120 Q 470,200 490,280 Q 510,370 520,470"
+          fill="none" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-dasharray="3,10" opacity="0.5"/>
+
+    <!-- 绿色路径（右侧 -> 地震中心） -->
+    <path d="M 1100,300 Q 950,320 820,380 Q 700,420 580,460 Q 540,470 520,470"
+          fill="none" stroke="url(#pathGreen)" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
+    <path d="M 1100,300 Q 950,320 820,380 Q 700,420 580,460 Q 540,470 520,470"
+          fill="none" stroke="#fff" stroke-width="1" stroke-linecap="round" stroke-dasharray="3,10" opacity="0.5"/>
+
+    <!-- 路径起点装饰（指挥中心） -->
+    <g transform="translate(120, 300)">
+      <circle r="18" fill="#0f172a" stroke="#ff3b3b" stroke-width="2"/>
+      <circle r="12" fill="#7f1d1d" fill-opacity="0.6"/>
+      <circle r="6" fill="#ef4444"/>
+    </g>
+    <g transform="translate(430, 120)">
+      <circle r="18" fill="#0f172a" stroke="#f59e0b" stroke-width="2"/>
+      <circle r="12" fill="#78350f" fill-opacity="0.6"/>
+      <circle r="6" fill="#f59e0b"/>
+    </g>
+    <g transform="translate(1100, 300)">
+      <circle r="18" fill="#0f172a" stroke="#4ade80" stroke-width="2"/>
+      <circle r="12" fill="#14532d" fill-opacity="0.6"/>
+      <circle r="6" fill="#4ade80"/>
+    </g>
+
+    <!-- 路径起点文字 -->
+    <g filter="url(#textShadow)">
+      <text x="145" y="295" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#ff6b6b">救援路线 A</text>
+      <text x="455" y="115" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#fbbf24">救援路线 B</text>
+      <text x="995" y="295" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#4ade80">救援路线 C</text>
+    </g>
+  </g>
+
+  <!-- ==================== 弧面视锥（蓝色雷达区） ==================== -->
+  <g transform="translate(920, 580)">
+    <!-- 外层半透明扇形 -->
+    <path d="M 0,0 L -180,-80 A 200,200 0 0,1 180,-80 Z"
+          fill="url(#viewconeBlue)" stroke="#3b82f6" stroke-width="2" stroke-opacity="0.6"/>
+    <!-- 内部弧线圈 -->
+    <path d="M -120,-53 A 130,130 0 0,1 120,-53"
+          fill="none" stroke="#60a5fa" stroke-width="1.2" stroke-opacity="0.5" stroke-dasharray="4,4"/>
+    <path d="M -75,-33 A 80,80 0 0,1 75,-33"
+          fill="none" stroke="#93c5fd" stroke-width="1" stroke-opacity="0.4" stroke-dasharray="3,3"/>
+    <!-- 两条边界线 -->
+    <line x1="0" y1="0" x2="-180" y2="-80" stroke="#3b82f6" stroke-width="1.5" stroke-opacity="0.7"/>
+    <line x1="0" y1="0" x2="180" y2="-80" stroke="#3b82f6" stroke-width="1.5" stroke-opacity="0.7"/>
+    <line x1="0" y1="0" x2="0" y2="-130" stroke="#60a5fa" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,4"/>
+
+    <!-- 弧面中心点（瞭望塔） -->
+    <circle r="14" fill="#0f172a" stroke="#3b82f6" stroke-width="2"/>
+    <circle r="7" fill="#2563eb"/>
+    <circle r="3" fill="#fff"/>
+
+    <!-- 标签 -->
+    <g transform="translate(0, 25)">
+      <text x="-32" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" fill="#93c5fd" filter="url(#textShadow)">视场角 60°</text>
+    </g>
+  </g>
+
+  <!-- ==================== 瞭望塔散布 ==================== -->
+  <g>
+    <!-- 塔1 -->
+    <g transform="translate(280, 450)" filter="url(#towerShadow)">
+      <circle r="32" fill="#4ade80" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#4ade80" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#4ade80" filter="url(#textShadow)">强震监测站-01</text>
+    </g>
+
+    <!-- 塔2 -->
+    <g transform="translate(700, 250)" filter="url(#towerShadow)">
+      <circle r="32" fill="#38bdf8" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#38bdf8" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#38bdf8" filter="url(#textShadow)">强震监测站-02</text>
+    </g>
+
+    <!-- 塔3 -->
+    <g transform="translate(1250, 580)" filter="url(#towerShadow)">
+      <circle r="32" fill="#a78bfa" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#a78bfa" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#a78bfa" filter="url(#textShadow)">地灾监测点-01</text>
+    </g>
+
+    <!-- 塔4 -->
+    <g transform="translate(1400, 200)" filter="url(#towerShadow)">
+      <circle r="32" fill="#fbbf24" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#fbbf24" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#fbbf24" filter="url(#textShadow)">地灾监测点-02</text>
+    </g>
+
+    <!-- 塔5 -->
+    <g transform="translate(600, 750)" filter="url(#towerShadow)">
+      <circle r="32" fill="#f472b6" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#f472b6" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#f472b6" filter="url(#textShadow)">地灾监测点-03</text>
+    </g>
+
+    <!-- 塔6 -->
+    <g transform="translate(1450, 780)" filter="url(#towerShadow)">
+      <circle r="32" fill="#22d3ee" fill-opacity="0.1"/>
+      <circle r="22" fill="none" stroke="#22d3ee" stroke-width="1" stroke-opacity="0.5" stroke-dasharray="3,3"/>
+      <use href="#watchtower" x="-50" y="-110" width="100" height="120"/>
+      <text x="0" y="25" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#22d3ee" filter="url(#textShadow)">地灾监测点-04</text>
+    </g>
+  </g>
+
+  <!-- ==================== 指挥中心（画面右） ==================== -->
+  <g transform="translate(1430, 680)">
+    <circle r="60" fill="#4ade80" fill-opacity="0.05"/>
+    <circle r="45" fill="none" stroke="#4ade80" stroke-width="1" stroke-opacity="0.35" stroke-dasharray="4,6"/>
+    <use href="#commandCenter" x="-40" y="-40" width="80" height="80"/>
+    <text x="0" y="55" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#4ade80" filter="url(#textShadow)">指挥中心</text>
+  </g>
+
+  <!-- ==================== 村庄点缀 ==================== -->
+  <g>
+    <g transform="translate(380, 620)" opacity="0.9">
+      <circle r="6" fill="#f59e0b"/>
+      <circle r="3" fill="#fff"/>
+      <text x="10" y="4" font-family="'PingFang SC',sans-serif" font-size="10" fill="#f59e0b" filter="url(#textShadow)">清平镇</text>
+    </g>
+    <g transform="translate(800, 470)" opacity="0.9">
+      <circle r="6" fill="#f59e0b"/>
+      <circle r="3" fill="#fff"/>
+      <text x="10" y="4" font-family="'PingFang SC',sans-serif" font-size="10" fill="#f59e0b" filter="url(#textShadow)">汉旺镇</text>
+    </g>
+    <g transform="translate(1000, 720)" opacity="0.9">
+      <circle r="6" fill="#f59e0b"/>
+      <circle r="3" fill="#fff"/>
+      <text x="10" y="4" font-family="'PingFang SC',sans-serif" font-size="10" fill="#f59e0b" filter="url(#textShadow)">天池乡</text>
+    </g>
+  </g>
+
+  <!-- ==================== 左侧信息面板 ==================== -->
+  <g transform="translate(40, 60)">
+    <!-- 主面板 -->
+    <rect width="320" height="780" rx="14" fill="url(#panelGlass)" stroke="#334155" stroke-width="1"/>
+    <!-- 顶部高光线 -->
+    <line x1="20" y1="0" x2="300" y2="0" stroke="url(#panelHighlight)" stroke-width="2"/>
+
+    <!-- 顶部标题 -->
+    <g transform="translate(24, 30)">
+      <circle cx="8" cy="8" r="4" fill="#4ade80"/>
+      <circle cx="8" cy="8" r="2" fill="#fff"/>
+      <text x="22" y="13" font-family="'PingFang SC',sans-serif" font-size="15" font-weight="700" fill="#f1f5f9">灾害应急可视化平台</text>
+    </g>
+
+    <!-- 分隔线 -->
+    <line x1="20" y1="65" x2="300" y2="65" stroke="#334155" stroke-width="1"/>
+
+    <!-- 区域信息块 -->
+    <g transform="translate(24, 85)">
+      <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#64748b" letter-spacing="2">REGION · 研究区概况</text>
+
+      <g transform="translate(0, 28)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">区域名称</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#f1f5f9">德阳市绵竹市</text>
+      </g>
+      <g transform="translate(0, 52)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">经纬度范围</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="12" fill="#f1f5f9">103.60° ~ 105.00°E</text>
+        <text x="180" y="16" font-family="'PingFang SC',sans-serif" font-size="12" fill="#f1f5f9">31.00° ~ 32.10°N</text>
+      </g>
+      <g transform="translate(0, 92)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">监测站点</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="14" font-weight="700" fill="#4ade80">8 个</text>
+      </g>
+    </g>
+
+    <!-- 分隔线 -->
+    <line x1="20" y1="200" x2="300" y2="200" stroke="#334155" stroke-width="1"/>
+
+    <!-- 地震详情块 -->
+    <g transform="translate(24, 220)">
+      <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#64748b" letter-spacing="2">SEISMIC · 震情信息</text>
+
+      <g transform="translate(0, 28)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">震级</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="16" font-weight="800" fill="#f87171">里氏 6.5</text>
+      </g>
+      <g transform="translate(0, 56)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">震源深度</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#f1f5f9">10 km</text>
+      </g>
+      <g transform="translate(0, 78)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">坐标</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="12" fill="#f1f5f9">104.069°E</text>
+        <text x="180" y="16" font-family="'PingFang SC',sans-serif" font-size="12" fill="#f1f5f9">31.568°N</text>
+      </g>
+      <g transform="translate(0, 118)">
+        <text font-family="'PingFang SC',sans-serif" font-size="11" fill="#94a3b8">时间</text>
+        <text x="180" font-family="'PingFang SC',sans-serif" font-size="12" fill="#f1f5f9">2008-05-12 14:28</text>
+      </g>
+    </g>
+
+    <!-- 震级大数字显示 -->
+    <g transform="translate(24, 400)">
+      <rect width="272" height="80" rx="10" fill="#7f1d1d" fill-opacity="0.4" stroke="#dc2626" stroke-width="1"/>
+      <line x1="10" y1="40" x2="10" y2="40" stroke="#dc2626"/>
+      <text x="20" y="42" font-family="'PingFang SC',sans-serif" font-size="11" fill="#fca5a5" letter-spacing="2">⚠ 切换至震中</text>
+    </g>
+
+    <!-- 分隔线 -->
+    <line x1="20" y1="505" x2="300" y2="505" stroke="#334155" stroke-width="1"/>
+
+    <!-- 统计卡1 -->
+    <g transform="translate(24, 530)">
+      <rect width="130" height="90" rx="10" fill="#166534" fill-opacity="0.35" stroke="#16a34a" stroke-width="1"/>
+      <circle cx="22" cy="22" r="11" fill="#22c55e" fill-opacity="0.3"/>
+      <text x="22" y="26" text-anchor="middle" font-size="14">🚑</text>
+      <text x="45" y="18" font-family="'PingFang SC',sans-serif" font-size="11" fill="#86efac">救援车辆</text>
+      <text x="45" y="44" font-family="'PingFang SC',sans-serif" font-size="24" font-weight="800" fill="#f1f5f9">3</text>
+      <text x="90" y="44" font-family="'PingFang SC',sans-serif" font-size="11" fill="#86efac">辆</text>
+      <text x="45" y="68" font-family="'PingFang SC',sans-serif" font-size="10" fill="#64748b">LIVE · 实时追踪</text>
+      <line x1="85" y1="65" x2="120" y2="65" stroke="#4ade80" stroke-width="1" stroke-opacity="0.6"/>
+    </g>
+
+    <!-- 统计卡2 -->
+    <g transform="translate(166, 530)">
+      <rect width="130" height="90" rx="10" fill="#1e3a8a" fill-opacity="0.35" stroke="#2563eb" stroke-width="1"/>
+      <circle cx="22" cy="22" r="11" fill="#3b82f6" fill-opacity="0.3"/>
+      <text x="22" y="26" text-anchor="middle" font-size="14">📡</text>
+      <text x="45" y="18" font-family="'PingFang SC',sans-serif" font-size="11" fill="#93c5fd">监测站点</text>
+      <text x="45" y="44" font-family="'PingFang SC',sans-serif" font-size="24" font-weight="800" fill="#f1f5f9">8</text>
+      <text x="85" y="44" font-family="'PingFang SC',sans-serif" font-size="11" fill="#93c5fd">个</text>
+      <text x="45" y="68" font-family="'PingFang SC',sans-serif" font-size="10" fill="#64748b">ONLINE · 在线</text>
+      <circle cx="95" cy="66" r="2" fill="#4ade80"/>
+    </g>
+
+    <!-- 分隔线 -->
+    <line x1="20" y1="645" x2="300" y2="645" stroke="#334155" stroke-width="1"/>
+
+    <!-- 洪水等级 -->
+    <g transform="translate(24, 665)">
+      <rect width="272" height="80" rx="10" fill="#082f49" fill-opacity="0.5" stroke="#0ea5e9" stroke-width="1"/>
+      <circle cx="22" cy="28" r="12" fill="#0ea5e9" fill-opacity="0.3"/>
+      <text x="22" y="32" text-anchor="middle" font-size="14">🌊</text>
+      <text x="45" y="25" font-family="'PingFang SC',sans-serif" font-size="11" fill="#7dd3fc">洪水等级</text>
+      <text x="45" y="50" font-family="'PingFang SC',sans-serif" font-size="13" fill="#94a3b8">暂无数据</text>
+      <text x="228" y="50" font-family="'PingFang SC',sans-serif" font-size="10" fill="#64748b">LEVEL</text>
+    </g>
+  </g>
+
+  <!-- ==================== 右侧面板 - 救援车辆 ==================== -->
+  <g transform="translate(1240, 60)">
+    <rect width="320" height="360" rx="14" fill="url(#panelGlass)" stroke="#334155" stroke-width="1"/>
+
+    <!-- 标题 -->
+    <g transform="translate(24, 30)">
+      <circle cx="8" cy="8" r="4" fill="#ef4444"/>
+      <circle cx="8" cy="8" r="2" fill="#fff"/>
+      <text x="22" y="13" font-family="'PingFang SC',sans-serif" font-size="14" font-weight="700" fill="#fecaca">🚑 救援车辆</text>
+      <text x="240" y="13" font-family="'PingFang SC',sans-serif" font-size="11" fill="#64748b">3 辆 · 行进中</text>
+    </g>
+
+    <!-- 分隔线 -->
+    <line x1="20" y1="60" x2="300" y2="60" stroke="#334155" stroke-width="1"/>
+
+    <!-- 车辆卡片1 -->
+    <g transform="translate(24, 78)">
+      <rect width="272" height="62" rx="8" fill="#7f1d1d" fill-opacity="0.35" stroke="#ef4444" stroke-width="1.5"/>
+      <rect x="0" y="0" width="4" height="62" rx="2" fill="#ef4444"/>
+      <circle cx="30" cy="31" r="13" fill="#ef4444" fill-opacity="0.3"/>
+      <text x="30" y="35" text-anchor="middle" font-size="13">🚑</text>
+      <text x="55" y="25" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#fecaca">成都 → 指挥中心</text>
+      <text x="55" y="44" font-family="'PingFang SC',sans-serif" font-size="10" fill="#94a3b8">速度 80 km/h · 进度 42%</text>
+      <rect x="55" y="48" width="200" height="4" rx="2" fill="#1e293b"/>
+      <rect x="55" y="48" width="84" height="4" rx="2" fill="#ef4444"/>
+    </g>
+
+    <!-- 车辆卡片2 -->
+    <g transform="translate(24, 152)">
+      <rect width="272" height="62" rx="8" fill="#78350f" fill-opacity="0.35" stroke="#f59e0b" stroke-width="1.5"/>
+      <rect x="0" y="0" width="4" height="62" rx="2" fill="#f59e0b"/>
+      <circle cx="30" cy="31" r="13" fill="#f59e0b" fill-opacity="0.3"/>
+      <text x="30" y="35" text-anchor="middle" font-size="13">🚛</text>
+      <text x="55" y="25" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#fde68a">绵阳 → 指挥中心</text>
+      <text x="55" y="44" font-family="'PingFang SC',sans-serif" font-size="10" fill="#94a3b8">速度 65 km/h · 进度 67%</text>
+      <rect x="55" y="48" width="200" height="4" rx="2" fill="#1e293b"/>
+      <rect x="55" y="48" width="134" height="4" rx="2" fill="#f59e0b"/>
+    </g>
+
+    <!-- 车辆卡片3 -->
+    <g transform="translate(24, 226)">
+      <rect width="272" height="62" rx="8" fill="#14532d" fill-opacity="0.35" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="0" y="0" width="4" height="62" rx="2" fill="#22c55e"/>
+      <circle cx="30" cy="31" r="13" fill="#22c55e" fill-opacity="0.3"/>
+      <text x="30" y="35" text-anchor="middle" font-size="13">🚚</text>
+      <text x="55" y="25" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="700" fill="#bbf7d0">广元 → 指挥中心</text>
+      <text x="55" y="44" font-family="'PingFang SC',sans-serif" font-size="10" fill="#94a3b8">速度 70 km/h · 进度 28%</text>
+      <rect x="55" y="48" width="200" height="4" rx="2" fill="#1e293b"/>
+      <rect x="55" y="48" width="56" height="4" rx="2" fill="#22c55e"/>
+    </g>
+
+    <!-- 速度调节 -->
+    <g transform="translate(24, 310)">
+      <text font-family="'PingFang SC',sans-serif" font-size="10" fill="#64748b">速度控制</text>
+      <text x="230" font-family="'PingFang SC',sans-serif" font-size="11" fill="#4ade80">100 km/h</text>
+      <rect x="0" y="12" width="272" height="4" rx="2" fill="#1e293b"/>
+      <rect x="0" y="12" width="136" height="4" rx="2" fill="#4ade80"/>
+      <circle cx="136" cy="14" r="6" fill="#4ade80"/>
+      <circle cx="136" cy="14" r="3" fill="#fff"/>
+    </g>
+  </g>
+
+  <!-- ==================== 右侧面板 - 监测站点 ==================== -->
+  <g transform="translate(1240, 440)">
+    <rect width="320" height="400" rx="14" fill="url(#panelGlass)" stroke="#334155" stroke-width="1"/>
+
+    <!-- 标题 -->
+    <g transform="translate(24, 30)">
+      <circle cx="8" cy="8" r="4" fill="#a78bfa"/>
+      <circle cx="8" cy="8" r="2" fill="#fff"/>
+      <text x="22" y="13" font-family="'PingFang SC',sans-serif" font-size="14" font-weight="700" fill="#e9d5ff">📡 监测站点</text>
+      <text x="250" y="13" font-family="'PingFang SC',sans-serif" font-size="11" fill="#64748b">8 个在线</text>
+    </g>
+    <line x1="20" y1="60" x2="300" y2="60" stroke="#334155" stroke-width="1"/>
+
+    <!-- 站点列表 -->
+    <g transform="translate(24, 78)">
+      <!-- 站点1 -->
+      <g>
+        <rect width="272" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#4ade80" fill-opacity="0.25"/>
+        <circle cx="18" cy="18" r="3" fill="#4ade80"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#e2e8f0">强震监测站-01</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b">104.078°E, 31.575°N</text>
+      </g>
+      <!-- 站点2 告警状态 -->
+      <g transform="translate(0, 44)">
+        <rect width="272" height="36" rx="6" fill="#450a0a" fill-opacity="0.4" stroke="#ef4444" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#ef4444" fill-opacity="0.3"/>
+        <circle cx="18" cy="18" r="3" fill="#ef4444"/>
+        <circle cx="255" cy="18" r="3" fill="#ef4444"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#fecaca">强震监测站-02</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#94a3b8">⚠ 地震波异常 · ALERT</text>
+      </g>
+      <!-- 站点3 -->
+      <g transform="translate(0, 88)">
+        <rect width="272" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#38bdf8" fill-opacity="0.25"/>
+        <circle cx="18" cy="18" r="3" fill="#38bdf8"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#e2e8f0">强震监测站-03</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b">104.120°E, 31.600°N</text>
+      </g>
+      <!-- 站点4 -->
+      <g transform="translate(0, 132)">
+        <rect width="272" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#a78bfa" fill-opacity="0.25"/>
+        <circle cx="18" cy="18" r="3" fill="#a78bfa"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#e2e8f0">地灾监测点-01</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b">104.200°E, 31.620°N</text>
+      </g>
+      <!-- 站点5 -->
+      <g transform="translate(0, 176)">
+        <rect width="272" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#f472b6" fill-opacity="0.25"/>
+        <circle cx="18" cy="18" r="3" fill="#f472b6"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#e2e8f0">地灾监测点-02</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b">103.900°E, 31.500°N</text>
+      </g>
+      <!-- 站点6 -->
+      <g transform="translate(0, 220)">
+        <rect width="272" height="36" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+        <circle cx="18" cy="18" r="9" fill="#fbbf24" fill-opacity="0.25"/>
+        <circle cx="18" cy="18" r="3" fill="#fbbf24"/>
+        <text x="40" y="14" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="600" fill="#e2e8f0">地灾监测点-03</text>
+        <text x="40" y="28" font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b">104.350°E, 31.450°N</text>
+      </g>
+    </g>
+
+    <!-- 传感器数据展示 -->
+    <g transform="translate(24, 340)">
+      <text font-family="'PingFang SC',sans-serif" font-size="9" fill="#64748b" letter-spacing="1">SENSOR DATA · 实时传感器</text>
+    </g>
+    <g transform="translate(24, 358)">
+      <rect width="64" height="30" rx="4" fill="#1e293b" stroke="#334155"/>
+      <text x="32" y="14" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="8" fill="#94a3b8">温度</text>
+      <text x="32" y="26" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="700" fill="#fbbf24">24°C</text>
+
+      <g transform="translate(70, 0)">
+        <rect width="64" height="30" rx="4" fill="#1e293b" stroke="#334155"/>
+        <text x="32" y="14" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="8" fill="#94a3b8">湿度</text>
+        <text x="32" y="26" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="700" fill="#38bdf8">68%</text>
+      </g>
+
+      <g transform="translate(140, 0)">
+        <rect width="64" height="30" rx="4" fill="#1e293b" stroke="#334155"/>
+        <text x="32" y="14" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="8" fill="#94a3b8">风速</text>
+        <text x="32" y="26" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="700" fill="#4ade80">3.2</text>
+      </g>
+
+      <g transform="translate(210, 0)">
+        <rect width="62" height="30" rx="4" fill="#450a0a" fill-opacity="0.6" stroke="#ef4444"/>
+        <text x="31" y="14" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="8" fill="#fca5a5">振动</text>
+        <text x="31" y="26" text-anchor="middle" font-family="'PingFang SC',sans-serif" font-size="11" font-weight="700" fill="#f87171">1.8</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ==================== 底部图例栏 ==================== -->
+  <g transform="translate(280, 820)">
+    <rect width="1040" height="50" rx="25" fill="url(#panelGlass)" stroke="#334155" stroke-width="1"/>
+
+    <!-- 图例项 -->
+    <g transform="translate(40, 18)">
+      <circle r="8" fill="#ef4444"/>
+      <circle r="3" cy="0" fill="#fff"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#fca5a5">震中</text>
+    </g>
+
+    <g transform="translate(140, 18)">
+      <circle r="8" fill="#2563eb" fill-opacity="0.5"/>
+      <circle r="8" fill="none" stroke="#3b82f6" stroke-width="1.5"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#93c5fd">视场覆盖</text>
+    </g>
+
+    <g transform="translate(260, 18)">
+      <circle r="6" fill="#f59e0b"/>
+      <circle r="3" fill="#fff"/>
+      <text x="16" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#fbbf24">村庄</text>
+    </g>
+
+    <g transform="translate(340, 18)">
+      <line x1="-10" y1="0" x2="10" y2="0" stroke="#ef4444" stroke-width="5" stroke-linecap="round"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#fca5a5">车辆路径</text>
+    </g>
+
+    <g transform="translate(460, 18)">
+      <line x1="-10" y1="0" x2="10" y2="0" stroke="#4ade80" stroke-width="5" stroke-linecap="round"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#86efac">救援路径</text>
+    </g>
+
+    <g transform="translate(580, 18)">
+      <circle cx="0" cy="0" r="8" fill="#4ade80" fill-opacity="0.15"/>
+      <circle cx="0" cy="0" r="5" fill="#4ade80" fill-opacity="0.3"/>
+      <circle cx="0" cy="0" r="2" fill="#4ade80"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#86efac">指挥中心</text>
+    </g>
+
+    <g transform="translate(700, 18)">
+      <circle r="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+      <circle r="2" fill="#a78bfa"/>
+      <text x="16" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#c4b5fd">监测站</text>
+    </g>
+
+    <g transform="translate(820, 18)">
+      <line x1="-10" y1="0" x2="10" y2="0" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+      <text x="18" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#93c5fd">雷达弧面</text>
+    </g>
+
+    <g transform="translate(940, 18)">
+      <circle r="6" fill="#fbbf24"/>
+      <circle r="3" fill="#fff"/>
+      <text x="16" y="4" font-family="'PingFang SC',sans-serif" font-size="12" font-weight="600" fill="#fde68a">人口聚集区</text>
+    </g>
+  </g>
+
+  <!-- ==================== 左上角 LOGO 装饰 ==================== -->
+  <g transform="translate(40, 25)">
+    <circle cx="14" cy="14" r="14" fill="#4ade80" fill-opacity="0.15"/>
+    <circle cx="14" cy="14" r="8" fill="#4ade80" fill-opacity="0.3"/>
+    <circle cx="14" cy="14" r="4" fill="#4ade80"/>
+    <circle cx="14" cy="14" r="1.5" fill="#fff"/>
+    <text x="36" y="19" font-family="'PingFang SC',sans-serif" font-size="13" font-weight="800" fill="#86efac" letter-spacing="2">GEODISASTER · EMERGENCY RESPONSE SYSTEM</text>
+  </g>
+
+  <!-- ==================== 右上角实时数据指示 ==================== -->
+  <g transform="translate(1460, 25)" font-family="'PingFang SC',sans-serif" font-size="11" fill="#64748b">
+    <circle cx="10" cy="14" r="3" fill="#4ade80"/>
+    <circle cx="10" cy="14" r="1.5" fill="#fff"/>
+    <text x="20" y="18">LIVE · 实时数据流</text>
+    <text x="140" y="18" fill="#4ade80" font-weight="700">●●●●●●● 8 MB/s</text>
+  </g>
+
+  <!-- 角落装饰线 -->
+  <g stroke="#38bdf8" stroke-width="1" stroke-opacity="0.3" fill="none">
+    <path d="M 20,80 L 20,60 L 40,60"/>
+    <path d="M 1580,80 L 1580,60 L 1560,60"/>
+    <path d="M 20,820 L 20,840 L 40,840"/>
+    <path d="M 1580,820 L 1580,840 L 1560,840"/>
+  </g>
+</svg>

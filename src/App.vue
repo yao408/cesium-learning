@@ -43,6 +43,16 @@
             <span class="nav-icon">🚑</span>
             <span class="nav-label">应急调度</span>
           </router-link>
+          <span class="nav-sep"></span>
+          <router-link to="/dashboard" class="nav-link">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">大屏展示</span>
+          </router-link>
+          <span class="nav-sep"></span>
+          <router-link to="/bigscreen" class="nav-link">
+            <span class="nav-icon">🖥️</span>
+            <span class="nav-label">暗色大屏</span>
+          </router-link>
         </div>
       </nav>
       <button class="nav-toggle" @click="navCollapsed = !navCollapsed" :title="navCollapsed ? '展开导航' : '收起导航'">

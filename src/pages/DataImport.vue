@@ -45,6 +45,11 @@
           <button @click="clearAOI" class="btn btn-danger btn-sm">清除</button>
         </div>
         <p class="hint">点击地震监测中的地震点自动生成周边场景</p>
+        <div class="control-group" style="margin-top: 6px;">
+          <label>村庄半径 {{ villageRadius }}km</label>
+          <input type="range" v-model.number="villageRadius" min="5" max="100" step="5" />
+        </div>
+        <p v-if="noDataWarning" class="hint" style="color:#e94560">{{ noDataWarning }}</p>
       </div>
 
       <div class="panel">
@@ -59,6 +64,65 @@
             <label>缩放 {{ modelScale.toFixed(0) }}x</label>
             <input type="range" v-model.number="modelScale" min="1" max="2000" step="10" @input="updateModelScale" />
           </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="collapsible" @click="toggleSection('tiles')">🏙️ 3D 瓦片 (3D Tiles) <span class="collapse-arrow">{{ sections.tiles ? '▶' : '▼' }}</span></h4>
+        <div v-show="!sections.tiles">
+          <div class="btn-row">
+            <button :disabled="tilesetLoading" @click="loadHefeiTileset" class="btn btn-sm">
+              {{ tilesetLoading ? '加载中...' : '🏙️ 加载合肥市' }}
+            </button>
+            <button v-if="hefeiTileset" @click="clearHefeiTileset" class="btn btn-danger btn-sm">清除</button>
+          </div>
+          <p v-if="tilesetLoaded" class="hint" style="color:#4ade80">已加载 {{ tileCount }} 个瓦片</p>
+          <p v-if="tilesetError" class="hint" style="color:#e94560">{{ tilesetError }}</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="collapsible" @click="toggleSection('cityViewshed')">🔭 城市通视分析 <span class="collapse-arrow">{{ sections.cityViewshed ? '▶' : '▼' }}</span></h4>
+        <div v-show="!sections.cityViewshed">
+          <p class="hint" style="margin-bottom:6px">需先加载 3D 瓦片，再在地图上点击放置观察点</p>
+          <div class="btn-row">
+            <button @click="toggleCityPick" class="btn btn-sm" :class="{ active: cityViewshed.picking }">
+              {{ cityViewshed.picking ? '🖱️ 选点中...' : '+ 放置观察点' }}
+            </button>
+            <button @click="clearCityViewshed" class="btn btn-danger btn-sm" :disabled="cityViewshed.points.length === 0">清空</button>
+          </div>
+          <div v-if="cityViewshed.points.length" class="point-list">
+            <div v-for="(p, i) in cityViewshed.points" :key="i" class="point-item">
+              <span class="point-dot" :style="{ background: '#4ade80' }"></span>
+              <span>{{ p.name }}</span>
+              <span class="point-coord">{{ p.lon.toFixed(4) }}, {{ p.lat.toFixed(4) }}</span>
+            </div>
+          </div>
+          <div v-if="cityViewshed.points.length" class="control-group" style="margin-top:6px">
+            <label>塔高 {{ cityViewshed.observerHeight }}m</label>
+            <input type="range" v-model.number="cityViewshed.observerHeight" min="5" max="200" step="5" />
+            <label>最大距离 {{ cityViewshed.maxDistance }}m</label>
+            <input type="range" v-model.number="cityViewshed.maxDistance" min="500" max="10000" step="100" />
+            <label>水平视角 {{ cityViewshed.fovH }}°</label>
+            <input type="range" v-model.number="cityViewshed.fovH" min="30" max="120" step="5" />
+            <label>垂直视角 {{ cityViewshed.fovV }}°</label>
+            <input type="range" v-model.number="cityViewshed.fovV" min="10" max="90" step="5" />
+            <label>水平朝向 {{ cityViewshed.heading }}°</label>
+            <input type="range" v-model.number="cityViewshed.heading" min="0" max="360" step="1" />
+            <label>俯仰角 {{ cityViewshed.pitch }}°</label>
+            <input type="range" v-model.number="cityViewshed.pitch" min="-90" max="90" step="1" />
+            <p class="hint" style="margin:2px 0 0 0; font-size:10px">拖动滑块精细调节，或开启拖拽模式直接在画面上操作</p>
+          </div>
+          <div class="btn-row" style="margin-top:4px" v-if="cityViewshed.points.length">
+            <button @click="toggleFrustumEdit" class="btn btn-sm" :class="{ active: frustumEditing }">
+              {{ frustumEditing ? '👆 拖拽中...' : '✋ 拖拽调节视场' }}
+            </button>
+            <button @click="runCityViewshed" class="btn btn-sm" :disabled="cityViewshed.loading">
+              {{ cityViewshed.loading ? '分析中...' : '🎨 开始分析' }}
+            </button>
+            <button @click="clearGPUViewshed" class="btn btn-danger btn-sm">🧹 清除结果</button>
+          </div>
+          <p v-if="!cityViewshed.points.length && !cityViewshed.picking" class="hint">点击「放置观察点」后在地图上点击</p>
         </div>
       </div>
 
@@ -123,21 +187,52 @@ import { ref, reactive, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import * as Cesium from 'cesium'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
+import { useSiteMarkers } from '../composables/useSiteMarkers.js'
+import { useViewshedGPU } from '../composables/useViewshedGPU.js'
+import { useTerrainQuery } from '../composables/useTerrainQuery.js'
+import { haversineDistance, gcj02ToWGS84 } from '../utils/geo.js'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
+const { addVillageDot, addWatchtower, clearAll } = useSiteMarkers()
 
 const collapsed = ref(false)
-const sections = reactive({ model: true, geo: true, draw: true })
+const sections = reactive({ model: true, geo: true, draw: true, tiles: true, cityViewshed: true })
 function toggleSection(key) { sections[key] = !sections[key] }
 const is2D = ref(false)
 const currentBaseMap = ref('ion')
 const loadingGeoJSON = ref(false)
+const noDataWarning = ref('')
+const villageRadius = ref(30)
 const loadingModel = ref(false)
 const geojsonCount = ref(0)
 const pickedFeature = ref('')
 const modelLoaded = ref(false)
 const modelScale = ref(100)
+const tilesetLoading = ref(false)
+const tilesetLoaded = ref(false)
+const tileCount = ref(0)
+const tilesetError = ref('')
+let hefeiTileset = null
+// 城市通视分析状态
+const cityViewshed = reactive({
+  observerHeight: 20,
+  maxDistance: 1500,
+  fovH: 90,
+  fovV: 60,
+  heading: 0,
+  pitch: -30,
+  picking: false,
+  points: [],
+  loading: false,
+})
+let cityClickHandler = null
+let cityViewshedEntities = []
+let cityFrustumEntities = []
+let frustumEditHandler = null
+const frustumEditing = ref(false)
+const { runGPUViewshed, clearGPUViewshed } = useViewshedGPU()
+const { getPickInfo, getHeightAtPosition } = useTerrainQuery()
 const drawMode = ref('')
 const labelMode = ref(false)
 const geoMode = ref('')
@@ -214,8 +309,6 @@ let labelHandler = null
 let labelEntities = []
 let geoHandler = null
 let geoEntities = []
-let villageMarkers = []
-let _villageSyncHandler = null
 let currentBaseLayer = null
 
 function getViewer() { return viewerStore.viewer }
@@ -246,12 +339,299 @@ function clearGeoJSON() {
   dynamicScenarioEntities.forEach(entity => viewer.entities.remove(entity))
   dynamicScenarioEntities = []
   pickedFeature.value = ''
-  clearVillageMarkers()
+  clearAll()
 }
 
 function clearModel() {
   if (modelEntity) { viewer.entities.remove(modelEntity); modelEntity = null }
   modelLoaded.value = false
+}
+
+async function loadHefeiTileset() {
+  tilesetLoading.value = true
+  tilesetError.value = ''
+  try {
+    hefeiTileset = await Cesium.Cesium3DTileset.fromUrl('/tiles/hefei/tileset.json', {
+      maximumScreenSpaceError: 16,
+    })
+    viewer.scene.primitives.add(hefeiTileset)
+    tilesetLoaded.value = true
+    try {
+      viewer.zoomTo(hefeiTileset, new Cesium.HeadingPitchRange(0, -0.5, 5000))
+    } catch {
+      viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(117.2272, 31.8206, 5000) })
+    }
+    hefeiTileset.tileLoad.addEventListener(() => {
+      tileCount.value++
+    })
+  } catch (e) {
+    tilesetError.value = '加载失败: ' + e.message
+    console.error('3D Tiles 加载失败:', e)
+  } finally {
+    tilesetLoading.value = false
+  }
+}
+
+function clearHefeiTileset() {
+  if (hefeiTileset) {
+    viewer.scene.primitives.remove(hefeiTileset)
+    hefeiTileset = null
+    tilesetLoaded.value = false
+    tileCount.value = 0
+  }
+  clearCityViewshed()
+}
+
+// ==================== 城市通视分析 ====================
+function showFrustumPreview() {
+  hideFrustumPreview()
+  if (!cityViewshed.points.length) return
+
+  const p = cityViewshed.points[cityViewshed.points.length - 1]
+  const pitchLayers = 6
+  const headingSteps = 48
+
+  const makeStripPositions = (layer, pitchLayers, halfFovH, headingCenter, pMin, pMax, R, enuToFixed) => {
+    const p1 = pMin + layer * (pMax - pMin) / (pitchLayers - 1)
+    const p2 = pMin + (layer + 1) * (pMax - pMin) / (pitchLayers - 1)
+    const cp1 = Math.cos(p1), sp1 = Math.sin(p1)
+    const cp2 = Math.cos(p2), sp2 = Math.sin(p2)
+    const positions = []
+    for (let j = 0; j <= headingSteps; j++) {
+      const h = headingCenter - halfFovH + j * (2 * halfFovH) / headingSteps
+      const enu = new Cesium.Cartesian3(R * cp1 * Math.sin(h), R * cp1 * Math.cos(h), R * sp1)
+      positions.push(Cesium.Matrix4.multiplyByPoint(enuToFixed, enu, new Cesium.Cartesian3()))
+    }
+    for (let j = headingSteps; j >= 0; j--) {
+      const h = headingCenter - halfFovH + j * (2 * halfFovH) / headingSteps
+      const enu = new Cesium.Cartesian3(R * cp2 * Math.sin(h), R * cp2 * Math.cos(h), R * sp2)
+      positions.push(Cesium.Matrix4.multiplyByPoint(enuToFixed, enu, new Cesium.Cartesian3()))
+    }
+    return positions
+  }
+
+  for (let layer = 0; layer < pitchLayers - 1; layer++) {
+    const entity = viewer.entities.add({
+      polygon: {
+        hierarchy: new Cesium.CallbackProperty(() => {
+          const totalH = p.groundHeight + cityViewshed.observerHeight + 2.1
+          const viewPos = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, totalH)
+          const enuToFixed = Cesium.Transforms.eastNorthUpToFixedFrame(viewPos)
+          const halfFovH = Cesium.Math.toRadians(cityViewshed.fovH * 0.5)
+          const halfFovV = Cesium.Math.toRadians(cityViewshed.fovV * 0.5)
+          const headingCenter = Cesium.Math.toRadians(cityViewshed.heading)
+          const pitchCenter = Cesium.Math.toRadians(cityViewshed.pitch)
+          const pMin = Math.max(pitchCenter - halfFovV, Cesium.Math.toRadians(-90))
+          const pMax = pitchCenter + halfFovV
+          const R = cityViewshed.maxDistance
+          return new Cesium.PolygonHierarchy(
+            makeStripPositions(layer, pitchLayers, halfFovH, headingCenter, pMin, pMax, R, enuToFixed)
+          )
+        }, false),
+        material: Cesium.Color.DODGERBLUE.withAlpha(0.15),
+        perPositionHeight: true,
+      },
+      id: `cityFrustumStrip_${layer}`,
+    })
+    cityFrustumEntities.push(entity)
+  }
+
+  const outlineEntity = viewer.entities.add({
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        const totalH = p.groundHeight + cityViewshed.observerHeight + 2.1
+        const viewPos = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, totalH)
+        const enuToFixed = Cesium.Transforms.eastNorthUpToFixedFrame(viewPos)
+        const halfFovH = Cesium.Math.toRadians(cityViewshed.fovH * 0.5)
+        const halfFovV = Cesium.Math.toRadians(cityViewshed.fovV * 0.5)
+        const headingCenter = Cesium.Math.toRadians(cityViewshed.heading)
+        const pitchCenter = Cesium.Math.toRadians(cityViewshed.pitch)
+        const pMin = Math.max(pitchCenter - halfFovV, Cesium.Math.toRadians(-90))
+        const pMax = pitchCenter + halfFovV
+        const R = cityViewshed.maxDistance
+        const hMin = headingCenter - halfFovH, hMax = headingCenter + halfFovH
+        const positions = []
+        const N = 48
+        const toWorld = (h, p) => {
+          const enu = new Cesium.Cartesian3(R * Math.cos(p) * Math.sin(h), R * Math.cos(p) * Math.cos(h), R * Math.sin(p))
+          return Cesium.Matrix4.multiplyByPoint(enuToFixed, enu, new Cesium.Cartesian3())
+        }
+        for (let i = 0; i <= N; i++) positions.push(toWorld(hMin + i * (hMax - hMin) / N, pMax))
+        for (let i = 0; i <= N; i++) positions.push(toWorld(hMax, pMax - i * (pMax - pMin) / N))
+        for (let i = 0; i <= N; i++) positions.push(toWorld(hMax - i * (hMax - hMin) / N, pMin))
+        for (let i = 0; i <= N; i++) positions.push(toWorld(hMin, pMin + i * (pMax - pMin) / N))
+        return positions
+      }, false),
+      width: 2,
+      material: Cesium.Color.DODGERBLUE.withAlpha(0.65),
+      clampToGround: false,
+    },
+    id: 'cityFrustumOutline',
+  })
+  cityFrustumEntities.push(outlineEntity)
+
+  const spokeEntity = viewer.entities.add({
+    polyline: {
+      positions: new Cesium.CallbackProperty(() => {
+        const totalH = p.groundHeight + cityViewshed.observerHeight + 2.1
+        const viewPos = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, totalH)
+        const enuToFixed = Cesium.Transforms.eastNorthUpToFixedFrame(viewPos)
+        const halfFovH = Cesium.Math.toRadians(cityViewshed.fovH * 0.5)
+        const halfFovV = Cesium.Math.toRadians(cityViewshed.fovV * 0.5)
+        const headingCenter = Cesium.Math.toRadians(cityViewshed.heading)
+        const pitchCenter = Cesium.Math.toRadians(cityViewshed.pitch)
+        const pMin = Math.max(pitchCenter - halfFovV, Cesium.Math.toRadians(-90))
+        const pMax = pitchCenter + halfFovV
+        const R = cityViewshed.maxDistance
+        const hMin = headingCenter - halfFovH, hMax = headingCenter + halfFovH
+        const toWorld = (h, p) => {
+          const enu = new Cesium.Cartesian3(R * Math.cos(p) * Math.sin(h), R * Math.cos(p) * Math.cos(h), R * Math.sin(p))
+          return Cesium.Matrix4.multiplyByPoint(enuToFixed, enu, new Cesium.Cartesian3())
+        }
+        const positions = []
+        const spokes = 12
+        for (let k = 0; k < spokes; k++) {
+          const t = k / spokes
+          const h = hMin + t * (hMax - hMin)
+          positions.push(viewPos, toWorld(h, pMax))
+          positions.push(viewPos, toWorld(hMax, pMax - t * (pMax - pMin)))
+          positions.push(viewPos, toWorld(hMax - t * (hMax - hMin), pMin))
+          positions.push(viewPos, toWorld(hMin, pMin + t * (pMax - pMin)))
+        }
+        return positions
+      }, false),
+      width: 1,
+      material: Cesium.Color.WHITE.withAlpha(0.25),
+      clampToGround: false,
+    },
+    id: 'cityFrustumSpokes',
+  })
+  cityFrustumEntities.push(spokeEntity)
+}
+
+function hideFrustumPreview() {
+  cityFrustumEntities.forEach(e => viewer.entities.remove(e))
+  cityFrustumEntities = []
+}
+
+function flyToObservationPoint() {
+  if (!cityViewshed.points.length) return
+  const p = cityViewshed.points[cityViewshed.points.length - 1]
+  const totalH = p.groundHeight + cityViewshed.observerHeight + 2.1
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, totalH),
+    orientation: {
+      heading: Cesium.Math.toRadians(cityViewshed.heading),
+      pitch: Cesium.Math.toRadians(cityViewshed.pitch),
+      roll: 0,
+    },
+  })
+}
+
+function toggleFrustumEdit() {
+  frustumEditing.value = !frustumEditing.value
+  const sc = viewer.scene.screenSpaceCameraController
+  if (frustumEditing.value) {
+    sc.enableRotate = false
+    sc.enableZoom = false
+    frustumEditHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+    let isDragging = false
+    let lastMouse = { x: 0, y: 0 }
+    frustumEditHandler.setInputAction((movement) => {
+      isDragging = true
+      lastMouse = { x: movement.position.x, y: movement.position.y }
+    }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
+    frustumEditHandler.setInputAction((movement) => {
+      if (!isDragging) return
+      const dx = movement.endPosition.x - lastMouse.x
+      const dy = movement.endPosition.y - lastMouse.y
+      lastMouse = { x: movement.endPosition.x, y: movement.endPosition.y }
+      cityViewshed.heading = (cityViewshed.heading + dx * 0.3 + 360) % 360
+      cityViewshed.pitch = Math.max(-90, Math.min(90, cityViewshed.pitch + dy * 0.3))
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+    frustumEditHandler.setInputAction(() => {
+      isDragging = false
+    }, Cesium.ScreenSpaceEventType.LEFT_UP)
+    frustumEditHandler.setInputAction((movement) => {
+      cityViewshed.maxDistance = Math.max(200, Math.min(10000, cityViewshed.maxDistance - Math.sign(movement) * 200))
+    }, Cesium.ScreenSpaceEventType.WHEEL)
+  } else {
+    sc.enableRotate = true
+    sc.enableZoom = true
+    if (frustumEditHandler) {
+      frustumEditHandler.destroy()
+      frustumEditHandler = null
+    }
+  }
+}
+
+function toggleCityPick() {
+  if (cityViewshed.picking) {
+    cancelCityPick()
+    return
+  }
+  cityViewshed.picking = true
+  cityClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  cityClickHandler.setInputAction(async (click) => {
+    const info = await getPickInfo(viewer, click)
+    if (!info) return
+    const idx = cityViewshed.points.length
+    cityViewshed.points.push({
+      lon: info.lon, lat: info.lat,
+      name: `观察点${idx + 1}`,
+      groundHeight: info.groundH,
+    })
+    cityViewshed.heading = Cesium.Math.toDegrees(viewer.camera.heading)
+    cityViewshed.pitch = Cesium.Math.toDegrees(viewer.camera.pitch)
+    // 放置绿色标记
+    cityViewshedEntities.push(viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(info.lon, info.lat, info.groundH + cityViewshed.observerHeight),
+      point: { pixelSize: 10, color: Cesium.Color.fromCssColorString('#4ade80'), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      label: { text: `观察点${idx + 1}`, font: '12px sans-serif', pixelOffset: new Cesium.Cartesian2(0, -16), fillColor: Cesium.Color.WHITE, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    }))
+    cancelCityPick()
+    showFrustumPreview()
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+}
+
+function cancelCityPick() {
+  cityViewshed.picking = false
+  if (cityClickHandler) {
+    cityClickHandler.destroy()
+    cityClickHandler = null
+  }
+}
+
+function clearCityViewshed() {
+  cancelCityPick()
+  if (frustumEditing.value) toggleFrustumEdit()
+  hideFrustumPreview()
+  cityViewshed.points = []
+  clearGPUViewshed()
+  cityViewshedEntities.forEach(e => viewer.entities.remove(e))
+  cityViewshedEntities = []
+}
+
+async function runCityViewshed() {
+  cityViewshed.loading = true
+  hideFrustumPreview()
+  clearGPUViewshed()
+  try {
+    for (const p of cityViewshed.points) {
+      runGPUViewshed(viewer, {
+        centerLon: p.lon,
+        centerLat: p.lat,
+        observerHeight: cityViewshed.observerHeight,
+        maxDistance: cityViewshed.maxDistance,
+        fovH: cityViewshed.fovH,
+        fovV: cityViewshed.fovV,
+        heading: cityViewshed.heading,
+        pitch: cityViewshed.pitch,
+      })
+    }
+  } finally {
+    cityViewshed.loading = false
+  }
 }
 
 function triggerFileInput(type) {
@@ -293,106 +673,93 @@ async function onGeoJSONFile(e) {
   }
 }
 
-async function fetchNearbyPlaces(lat, lon) {
-  const query = `[out:json];(node[place~"village|hamlet|town"](around:50000,${lat},${lon}););out;`
-  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
+async function fetchDistrict(centerLat, centerLon) {
+  const key = import.meta.env.VITE_AMAP_KEY
+  if (!key) return []
+
+  let adcode = ''
   try {
-    const res = await fetch(url, { signal: controller.signal })
-    const data = await res.json()
-    return (data.elements || []).map(e => ({
-      name: e.tags['name:zh'] || e.tags.name || '未知',
-      lat: e.lat,
-      lon: e.lon,
-      type: e.tags.place || 'village',
-    }))
-  } catch (e) {
-    console.warn('Overpass API 查询失败，使用本地生成的村庄数据:', e.message)
-    return []
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-function createVillageMarker(lon, lat, name) {
-  const v = viewerStore.viewer
-  if (!v) return null
-  const el = document.createElement('div')
-  el.className = 'village-marker'
-  el.innerHTML = `
-    <img src="./icons/village.svg" class="village-icon" alt="" />
-    <span class="village-label">${name}</span>
-  `
-  v.container.appendChild(el)
-  return { el, name, position: Cesium.Cartesian3.fromDegrees(lon, lat) }
-}
-
-function syncVillageMarkers() {
-  const v = viewerStore.viewer
-  if (!v) return
-  villageMarkers.forEach(m => {
-    const sp = v.scene.cartesianToCanvasCoordinates(m.position)
-    if (sp) {
-      m.el.style.left = sp.x + 'px'
-      m.el.style.top = sp.y + 'px'
-      m.el.style.display = 'flex'
-    } else {
-      m.el.style.display = 'none'
+    const regeoUrl = `https://restapi.amap.com/v3/geocode/regeo?key=${key}&location=${centerLon},${centerLat}&extensions=base`
+    const regeoRes = await fetch(regeoUrl)
+    const regeoData = await regeoRes.json()
+    if (regeoData.status === '1' && regeoData.regeocode) {
+      adcode = regeoData.regeocode.addressComponent.adcode
     }
-  })
-}
+  } catch (e) {
+    console.warn('逆地理编码失败:', e.message)
+  }
 
-function clearVillageMarkers() {
-  villageMarkers.forEach(m => m.el.remove())
-  villageMarkers = []
-  if (_villageSyncHandler) { _villageSyncHandler(); _villageSyncHandler = null }
+  if (!adcode) return []
+
+  let townships = []
+  try {
+    const distUrl = `https://restapi.amap.com/v3/config/district?key=${key}&keywords=${adcode}&subdistrict=2&extensions=base`
+    const distRes = await fetch(distUrl)
+    const distData = await distRes.json()
+    if (distData.status === '1' && distData.districts.length > 0) {
+      const county = distData.districts[0]
+      if (county.districts) {
+        townships = county.districts
+      }
+    }
+  } catch (e) {
+    console.warn('行政区划查询失败:', e.message)
+  }
+
+  const results = []
+  townships.forEach(t => {
+    if (!t.center) return
+    const [gcjLng, gcjLat] = t.center.split(',').map(Number)
+    const wgs = gcj02ToWGS84(gcjLat, gcjLng)
+    const dist = haversineDistance(centerLat, centerLon, wgs.lat, wgs.lng) / 1000
+    results.push({
+      name: t.name,
+      lat: wgs.lat,
+      lon: wgs.lng,
+      dist,
+      type: t.level === 'street' ? 'town' : 'village',
+      displayName: t.name,
+    })
+  })
+
+  return results.sort((a, b) => a.dist - b.dist)
 }
 
 async function generateScenarioFromEarthquake(centerLon, centerLat) {
   if (!viewer) return
   clearGeoJSON()
   loadingGeoJSON.value = true
+  noDataWarning.value = ''
 
-  const places = await fetchNearbyPlaces(centerLat, centerLon)
+  const places = await fetchDistrict(centerLat, centerLon)
   const villages = []
   const watchtowers = []
-  const entities = []
 
   const dam = { name: '堰塞坝', lng: centerLon + 0.05, lat: centerLat - 0.1, height: 45 }
-  const dispatchCenter = { name: '县城', lng: centerLon + 0.15, lat: centerLat + 0.12, population: 80000 }
+  const dispatchCenter = { name: '指挥中心', lng: centerLon, lat: centerLat, population: 80000 }
 
-  let villagePlaces = places.filter(p => p.type === 'village' || p.type === 'hamlet')
-  const townPlaces = places.filter(p => p.type === 'town')
+  // 按半径筛选村庄
+  const radiusKm = villageRadius.value
+  const nearby = places.filter(p => p.dist <= radiusKm)
 
-  if (villagePlaces.length === 0) {
-    const offsets = [
-      { dLon: -0.08, dLat: 0.05, name: '上河村' },
-      { dLon: 0.06, dLat: 0.08, name: '下河村' },
-      { dLon: -0.04, dLat: -0.07, name: '东山村' },
-      { dLon: 0.09, dLat: -0.04, name: '西坪村' },
-      { dLon: -0.1, dLat: -0.02, name: '南沟村' },
-      { dLon: 0.03, dLat: 0.12, name: '北岭村' },
-    ]
-    villagePlaces = offsets.map(o => ({ lon: centerLon + o.dLon, lat: centerLat + o.dLat, name: o.name }))
+  if (nearby.length === 0) {
+    noDataWarning.value = `⚠️ ${radiusKm}km 内未找到乡镇数据，请扩大半径`
+  } else {
+    noDataWarning.value = ''
   }
 
-  const displayVillages = villagePlaces.slice(0, 6)
-  clearVillageMarkers()
-  displayVillages.forEach((p, idx) => {
-    const marker = createVillageMarker(p.lon, p.lat, p.name)
-    if (marker) villageMarkers.push(marker)
-    villages.push({ name: p.name, lng: p.lon, lat: p.lat, population: 1000 + idx * 500, elevation: 1200 + idx * 100 })
+  clearAll()
+  nearby.forEach((p, idx) => {
+    addVillageDot(p.lon, p.lat, p.displayName || p.name)
+    villages.push({ name: p.displayName || p.name, lng: p.lon, lat: p.lat, population: 1000 + idx * 500, elevation: 1200 + idx * 100 })
   })
-  if (!_villageSyncHandler) {
-    _villageSyncHandler = viewerStore.viewer.scene.postRender.addEventListener(syncVillageMarkers)
-  }
 
+  // 指挥中心设在最近的乡镇
+  const townPlaces = nearby.filter(p => p.type === 'town')
   if (townPlaces.length > 0) {
-    const town = townPlaces[0]
-    dispatchCenter.name = town.name
-    dispatchCenter.lng = town.lon
-    dispatchCenter.lat = town.lat
+    dispatchCenter.name = townPlaces[0].name
+    dispatchCenter.lng = townPlaces[0].lon
+    dispatchCenter.lat = townPlaces[0].lat
   }
 
   const towerDefs = [
@@ -400,32 +767,11 @@ async function generateScenarioFromEarthquake(centerLon, centerLat) {
     { name: '瞭望塔2号', lng: centerLon + 0.1, lat: centerLat - 0.08, height: 30, elevation: 2600 },
   ]
   towerDefs.forEach(t => {
-    const marker = createVillageMarker(t.lng, t.lat, t.name)
-    if (!marker) return
-    marker.el.querySelector('.village-icon').src = './icons/observation-tower.svg'
-    villageMarkers.push(marker)
+    addWatchtower(t.lng, t.lat, t.name)
     watchtowers.push({ name: t.name, lng: t.lng, lat: t.lat, height: t.height, elevation: t.elevation })
   })
 
-  const dashMaterial = new Cesium.PolylineDashMaterialProperty({
-    color: Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.8),
-    dashLength: 16,
-    dashPattern: 0xFF00,
-  })
-  displayVillages.forEach(p => {
-    const lineEntity = viewer.entities.add({
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([centerLon, centerLat, p.lon, p.lat]),
-        width: 2,
-        material: dashMaterial,
-        clampToGround: true,
-      },
-      properties: { type: 'road', name: '疏散路线' },
-    })
-    dynamicScenarioEntities.push(lineEntity)
-  })
-
-  geojsonCount.value = dynamicScenarioEntities.length
+  geojsonCount.value = nearby.length
   store.setHazards(villages)
   store.setWatchtowers(watchtowers)
   store.setFloodLevel(0, dam)
@@ -750,7 +1096,9 @@ onBeforeUnmount(() => {
   if (labelHandler) labelHandler.destroy()
   drawHandler = null
   labelHandler = null
-  clearVillageMarkers()
+  clearCityViewshed()
+  clearAll()
+  clearHefeiTileset()
   viewer = null
 })
 </script>
@@ -844,6 +1192,10 @@ onBeforeUnmount(() => {
 .control-group { margin-top: 4px; }
 .control-group label { font-size: 10px; color: #8b7e6a; display: block; margin-bottom: 2px; }
 .control-group input[type=range] { width: 100%; accent-color: #f59e0b; }
+.point-list { margin-top: 6px; }
+.point-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: rgba(255,255,255,0.3); border-radius: 4px; margin-bottom: 3px; font-size: 11px; color: #444; }
+.point-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.point-coord { margin-left: auto; color: #8b7e6a; font-family: monospace; }
 .draw-info { margin-top: 4px; max-height: 200px; overflow-y: auto; }
 .draw-item { display: flex; align-items: center; gap: 4px; padding: 3px 0; border-bottom: 1px solid rgba(45, 138, 78, 0.08); font-size: 10px; }
 .draw-type { color: #3a9db0; flex-shrink: 0; text-transform: uppercase; }
@@ -908,5 +1260,37 @@ onBeforeUnmount(() => {
   font-family: 'Microsoft YaHei', sans-serif;
   text-shadow: 0 0 4px #000, 0 0 4px #000;
   white-space: nowrap;
+}
+
+.village-dot {
+  position: absolute;
+  pointer-events: auto;
+  z-index: 200;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+.village-dot-inner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.6);
+}
+.village-dot-tip {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Microsoft YaHei', sans-serif;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
 }
 </style>
