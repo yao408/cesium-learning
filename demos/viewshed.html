@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>通视分析 - Cesium Demo</title>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Widgets/widgets.css">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    .toolbar {
+      position: fixed; top: 10px; left: 10px; z-index: 100;
+      background: rgba(0,0,0,0.7); border-radius: 8px; padding: 10px;
+      color: #fff; font-family: sans-serif; font-size: 13px;
+    }
+    .toolbar button {
+      background: #38bdf8; border: none; color: #fff; padding: 6px 14px;
+      border-radius: 4px; cursor: pointer; margin: 2px;
+    }
+    .toolbar .info { margin-top: 8px; color: #aaa; }
+    .toolbar .green { color: #4ade80; }
+    .toolbar .red { color: #ef4444; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <div class="toolbar">
+    <button onclick="runAnalysis()">▶ 执行通视分析</button>
+    <button onclick="clearAll()">✕ 清除</button>
+    <div class="info">
+      瞭望塔: 德阳 (104.08, 31.57) | 塔高 50m | 探测 5km
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Cesium.js"></script>
+  <script>
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNWE1M2JjZS01ZDhhLTQ0ODctYWIxNi04NWE3MmZjNTFkZTkiLCJpZCI6NDQ4MDg0LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODIyMTY0MzN9.L-8hfjm1CF8tP5x_GR3kd49lvrxBKGpO9ruCd8L6XkE'
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, navigationHelpButton: false, sceneModePicker: false,
+      imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/',
+      }),
+    })
+
+    const CENTER_LON = 104.08, CENTER_LAT = 31.57
+    const TOWER_HEIGHT = 50       // 瞭望塔离地高度
+    const MAX_DISTANCE = 5000     // 探测距离（米）
+    const STEP_SIZE = 100         // 采样步长（米）
+    const RAY_COUNT = 36          // 射线数量（360°/36 = 每10°一条）
+
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(CENTER_LON, CENTER_LAT, 8000),
+      duration: 1,
+    })
+
+    let viewshedEntities = []
+
+    // 哈弗辛公式：计算两点间球面距离（米）
+    function haversineDistance(lat1, lng1, lat2, lng2) {
+      const R = 6371000
+      const dLat = Cesium.Math.toRadians(lat2 - lat1)
+      const dLng = Cesium.Math.toRadians(lng2 - lng1)
+      const a = Math.sin(dLat/2)**2 + Math.cos(Cesium.Math.toRadians(lat1)) * Math.cos(Cesium.Math.toRadians(lat2)) * Math.sin(dLng/2)**2
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+    }
+
+    // 批量查询地形高度
+    async function getHeightsAtPositions(positions) {
+      const cartographics = positions.map(p => Cesium.Cartographic.fromDegrees(p.lon, p.lat, 0))
+      const sampled = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartographics)
+      return sampled.map(s => s.height || 0)
+    }
+
+    // 绘制瞭望塔标记
+    function drawTower(groundH) {
+      const pos = Cesium.Cartesian3.fromDegrees(CENTER_LON, CENTER_LAT, groundH + TOWER_HEIGHT)
+      viewer.entities.add({
+        position: pos,
+        point: { pixelSize: 12, color: Cesium.Color.CYAN, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        label: { text: '瞭望塔', font: '14px sans-serif', fillColor: Cesium.Color.WHITE,
+          pixelOffset: new Cesium.Cartesian2(0, -20), disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+      })
+      // 竖线连接地面
+      viewer.entities.add({
+        polyline: {
+          positions: [Cesium.Cartesian3.fromDegrees(CENTER_LON, CENTER_LAT, groundH), pos],
+          width: 2, material: Cesium.Color.CYAN.withAlpha(0.5),
+        },
+      })
+    }
+
+    // 核心：单条射线沿地形采样，判断可见性
+    async function raycast(angle, originHeight) {
+      const cosLat = Math.cos(Cesium.Math.toRadians(CENTER_LAT))
+      const numSteps = Math.floor(MAX_DISTANCE / STEP_SIZE)
+
+      // 生成采样点
+      const samples = []
+      for (let i = 1; i <= numSteps; i++) {
+        const dist = i * STEP_SIZE
+        const dLat = (dist / 111000) * Math.cos(angle)
+        const dLon = (dist / (111000 * cosLat)) * Math.sin(angle)
+        samples.push({ lon: CENTER_LON + dLon, lat: CENTER_LAT + dLat, dist })
+      }
+
+      const heights = await getHeightsAtPositions(samples)
+
+      // 逐点判断：该点前面有任何点地形高于视线 → 被遮挡
+      const visibleFlags = []
+      for (let i = 0; i < samples.length; i++) {
+        const dist = samples[i].dist
+        const terrainH = heights[i]
+        let blocked = false
+        for (let j = 0; j < i; j++) {
+          const distJ = samples[j].dist
+          const losHj = originHeight + (terrainH - originHeight) * (distJ / dist)
+          if (heights[j] > losHj + 0.01) { blocked = true; break }
+        }
+        visibleFlags.push(!blocked)
+      }
+      return { samples, visibleFlags }
+    }
+
+    // 运行全向通视分析
+    async function runAnalysis() {
+      clearAll()
+
+      const groundH = (await getHeightsAtPositions([{ lon: CENTER_LON, lat: CENTER_LAT }]))[0]
+      const originHeight = groundH + TOWER_HEIGHT + 2.1
+      drawTower(groundH)
+
+      const angleStep = 360 / RAY_COUNT
+      const visColor = Cesium.Color.fromCssColorString('#4ade80').withAlpha(0.7)
+      const hidColor = Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.5)
+
+      let totalVisible = 0, totalBlocked = 0
+
+      for (let i = 0; i < RAY_COUNT; i++) {
+        const angle = Cesium.Math.toRadians(i * angleStep)
+        const { samples, visibleFlags } = await raycast(angle, originHeight)
+
+        // 按可见性分段绘制：绿色=可见，红色=遮挡
+        let prevVisible = visibleFlags[0]
+        let segStart = { lon: CENTER_LON, lat: CENTER_LAT }
+
+        for (let j = 1; j < samples.length; j++) {
+          if (visibleFlags[j] !== prevVisible) {
+            const end = samples[j]
+            const color = prevVisible ? visColor : hidColor
+            if (prevVisible) totalVisible++
+
+            viewshedEntities.push(viewer.entities.add({
+              polyline: {
+                positions: Cesium.Cartesian3.fromDegreesArray([segStart.lon, segStart.lat, end.lon, end.lat]),
+                width: 3, material: color, clampToGround: true,
+              },
+            }))
+            segStart = end
+            prevVisible = visibleFlags[j]
+          }
+        }
+
+        // 最后一段
+        const last = samples[samples.length - 1]
+        if (prevVisible) totalVisible++
+        viewshedEntities.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray([segStart.lon, segStart.lat, last.lon, last.lat]),
+            width: 3, material: prevVisible ? visColor : hidColor, clampToGround: true,
+          },
+        }))
+      }
+
+      document.getElementById('result').innerHTML =
+        `<span class="green">可见: ${totalVisible}</span> / <span class="red">遮挡: ${RAY_COUNT - totalVisible}</span>`
+    }
+
+    function clearAll() {
+      viewshedEntities.forEach(e => viewer.entities.remove(e))
+      viewshedEntities = []
+      viewer.entities.removeAll()
+      document.getElementById('result').innerHTML = ''
+    }
+  </script>
+</body>
+</html>

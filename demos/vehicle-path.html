@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>车辆路径动画 - Cesium Demo</title>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Widgets/widgets.css">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    .panel {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 100;
+      background: rgba(0,0,0,0.75); border-radius: 8px; padding: 10px 16px;
+      color: #fff; font-family: sans-serif; font-size: 13px; display: flex; gap: 8px; align-items: center;
+    }
+    .panel button { border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    .btn-play { background: #4ade80; color: #000; }
+    .btn-pause { background: #fbbf24; color: #000; }
+    .btn-reset { background: #666; color: #fff; }
+    .speed { display: flex; align-items: center; gap: 4px; }
+    .speed input { width: 80px; }
+    .info { color: #aaa; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+  <div class="panel">
+    <button class="btn-play" onclick="togglePlay()" id="btnPlay">▶ 播放</button>
+    <button class="btn-reset" onclick="reset()">↺ 重置</button>
+    <div class="speed">
+      <span>速度</span>
+      <input type="range" id="speed" min="20" max="200" value="100" oninput="updateSpeed()">
+      <span id="speedVal">100km/h</span>
+    </div>
+    <span class="info" id="progress">0%</span>
+  </div>
+
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Cesium.js"></script>
+  <script>
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNWE1M2JjZS01ZDhhLTQ0ODctYWIxNi04NWE3MmZjNTFkZTkiLCJpZCI6NDQ4MDg0LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODIyMTY0MzN9.L-8hfjm1CF8tP5x_GR3kd49lvrxBKGpO9ruCd8L6XkE'
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false, timeline: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, navigationHelpButton: false, sceneModePicker: false,
+      imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/',
+      }),
+    })
+
+    // 德阳周边路径（经纬度点）
+    const path = [
+      [104.08, 31.57],
+      [104.09, 31.575],
+      [104.10, 31.572],
+      [104.11, 31.568],
+      [104.12, 31.57],
+      [104.13, 31.575],
+      [104.14, 31.58],
+      [104.15, 31.585],
+      [104.16, 31.582],
+      [104.17, 31.578],
+      [104.18, 31.575],
+      [104.19, 31.572],
+      [104.20, 31.57],
+    ]
+
+    let vehicleEntity = null, pathEntity = null
+    let postRenderHandler = null
+    let progress = 0, speed = 100, isPlaying = false
+    let lastTime = performance.now()
+
+    // 初始化场景
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(104.13, 31.575, 5000),
+      duration: 1,
+    })
+
+    function init() {
+      // 绘制路径线
+      const positions = path.map(p => Cesium.Cartesian3.fromDegrees(p[0], p[1], 0))
+      pathEntity = viewer.entities.add({
+        polyline: {
+          positions,
+          width: 3,
+          material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.2, color: Cesium.Color.CYAN }),
+          clampToGround: true,
+        },
+      })
+
+      // 起点标记
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(path[0][0], path[0][1], 0),
+        point: { pixelSize: 10, color: Cesium.Color.LIME },
+        label: { text: '起点', font: '12px sans-serif', fillColor: Cesium.Color.WHITE,
+          pixelOffset: new Cesium.Cartesian2(0, -16), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      })
+
+      // 终点标记
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(path[path.length-1][0], path[path.length-1][1], 0),
+        point: { pixelSize: 10, color: Cesium.Color.RED },
+        label: { text: '终点', font: '12px sans-serif', fillColor: Cesium.Color.WHITE,
+          pixelOffset: new Cesium.Cartesian2(0, -16), disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      })
+
+      // 车辆模型
+      const startPos = Cesium.Cartesian3.fromDegrees(path[0][0], path[0][1], 0)
+      vehicleEntity = viewer.entities.add({
+        position: startPos,
+        orientation: new Cesium.VelocityOrientationProperty(startPos),
+        model: {
+          uri: 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/CesiumMilkTruck/glTF/CesiumMilkTruck.gltf',
+          minimumPixelSize: 64,
+          maximumScale: 200,
+        },
+      })
+
+      // 锁定相机跟随
+      viewer.trackedEntity = vehicleEntity
+    }
+
+    // 沿路径插值获取位置
+    function getPositionAtProgress(progressPercent) {
+      const p = progressPercent / 100
+      const totalSegments = path.length - 1
+      const segmentFloat = p * totalSegments
+      const segIdx = Math.min(Math.floor(segmentFloat), totalSegments - 1)
+      const segT = segmentFloat - segIdx
+
+      const [lat1, lon1] = path[segIdx]
+      const [lat2, lon2] = path[segIdx + 1]
+      const lat = lat1 + (lat2 - lat1) * segT
+      const lon = lon1 + (lon2 - lon1) * segT
+
+      return Cesium.Cartesian3.fromDegrees(lon, lat, 0)
+    }
+
+    // 帧动画
+    function startAnimation() {
+      if (postRenderHandler) return
+      lastTime = performance.now()
+      postRenderHandler = viewer.scene.postRender.addEventListener(() => {
+        if (!isPlaying || !vehicleEntity) return
+        const now = performance.now()
+        const dt = (now - lastTime) / 1000
+        lastTime = now
+
+        // 进度增量 = 速度(km/h) / 3600 * dt / 路径总长度(km) * 100
+        const totalDistKm = 0.01 // 约 10km
+        const progressInc = (speed / 3600) * dt / totalDistKm * 100
+        progress = Math.min(100, progress + progressInc)
+
+        vehicleEntity.position = getPositionAtProgress(progress)
+        document.getElementById('progress').textContent = progress.toFixed(1) + '%'
+
+        if (progress >= 100) {
+          isPlaying = false
+          document.getElementById('btnPlay').textContent = '▶ 播放'
+        }
+      })
+    }
+
+    function togglePlay() {
+      if (!isPlaying) {
+        startAnimation()
+        isPlaying = true
+        document.getElementById('btnPlay').textContent = '⏸ 暂停'
+      } else {
+        isPlaying = false
+        document.getElementById('btnPlay').textContent = '▶ 播放'
+        lastTime = performance.now()
+      }
+    }
+
+    function reset() {
+      isPlaying = false
+      progress = 0
+      lastTime = performance.now()
+      document.getElementById('btnPlay').textContent = '▶ 播放'
+      document.getElementById('progress').textContent = '0%'
+      if (vehicleEntity) {
+        vehicleEntity.position = Cesium.Cartesian3.fromDegrees(path[0][1], path[0][0], 0)
+      }
+    }
+
+    function updateSpeed() {
+      speed = parseInt(document.getElementById('speed').value)
+      document.getElementById('speedVal').textContent = speed + 'km/h'
+    }
+
+    init()
+    window.togglePlay = togglePlay
+    window.reset = reset
+    window.updateSpeed = updateSpeed
+  </script>
+</body>
+</html>

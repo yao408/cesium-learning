@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>监测站发光圆点 - Cesium Demo</title>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Widgets/widgets.css">
+  <style>
+    html, body, #cesiumContainer { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.142/Build/Cesium/Cesium.js"></script>
+  <script>
+    // ===== 1. 初始化 Cesium 场景 =====
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNWE1M2JjZS01ZDhhLTQ0ODctYWIxNi04NWE3MmZjNTFkZTkiLCJpZCI6NDQ4MDg0LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODIyMTY0MzN9.L-8hfjm1CF8tP5x_GR3kd49lvrxBKGpO9ruCd8L6XkE'
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      animation: false,
+      timeline: false,
+      baseLayerPicker: false,
+      geocoder: false,
+      homeButton: false,
+      navigationHelpButton: false,
+      sceneModePicker: false,
+    })
+
+    // 飞到德阳
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(104.08, 31.57, 15000),
+      duration: 1,
+    })
+
+    // ===== 2. 创建发光图标（Canvas 绘制） =====
+    function createGlowIcon(color, size) {
+      size = size || 128
+      const canvas = document.createElement('canvas')
+      canvas.width = size
+      canvas.height = size
+      const ctx = canvas.getContext('2d')
+      const cx = size / 2, cy = size / 2
+
+      // 光晕：径向渐变，从中心向外透明度递减
+      const glow = ctx.createRadialGradient(cx, cy, 6, cx, cy, 56)
+      glow.addColorStop(0, color + 'cc')
+      glow.addColorStop(0.2, color + '44')
+      glow.addColorStop(0.5, color + '11')
+      glow.addColorStop(1, color + '00')
+      ctx.fillStyle = glow
+      ctx.fillRect(0, 0, size, size)
+
+      // 实心圆点
+      ctx.fillStyle = color
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2.5
+      ctx.shadowColor = color
+      ctx.shadowBlur = 12
+      ctx.beginPath()
+      ctx.arc(cx, cy, 10, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      return canvas
+    }
+
+    // ===== 3. 在地形采样后放置图标 =====
+    const station = { lon: 104.08, lat: 31.57, name: '德阳监测站', color: '#38bdf8' }
+
+    Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [
+      Cesium.Cartographic.fromDegrees(station.lon, station.lat),
+    ]).then((samples) => {
+      const groundH = samples[0]?.height ?? 0
+
+      const iconCanvas = createGlowIcon(station.color)
+
+      // 发光圆点（Billboard）
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(station.lon, station.lat, groundH + 10),
+        billboard: {
+          image: iconCanvas,
+          width: 48,
+          height: 48,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,  // 不被地形遮挡
+          scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 500000, 0.5),  // 远处缩小
+        },
+        name: station.name,
+      })
+    })
+
+    // ===== 4. 脉冲光环动画（Canvas 动态绘制） =====
+    const pulseCanvas = document.createElement('canvas')
+    pulseCanvas.width = 256
+    pulseCanvas.height = 256
+    const pulseCtx = pulseCanvas.getContext('2d')
+
+    const pulseEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(station.lon, station.lat, 800),
+      billboard: {
+        image: pulseCanvas,
+        width: 80,
+        height: 80,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 2.0, 500000, 0.6),
+      },
+    })
+
+    // 每帧重绘脉冲环
+    viewer.scene.postRender.addEventListener(() => {
+      const t = performance.now() * 0.001
+      pulseCtx.clearRect(0, 0, 256, 256)
+
+      // 画 4 个扩散的环
+      for (let i = 0; i < 4; i++) {
+        const phase = (t * 0.8 + i * 0.25) % 1  // 0→1 循环
+        const alpha = 1 - phase  // 越扩散越透明
+        const radius = 40 + phase * 80
+
+        pulseCtx.beginPath()
+        pulseCtx.arc(128, 128, radius, 0, Math.PI * 2)
+        pulseCtx.strokeStyle = `rgba(56, 189, 248, ${alpha * 0.6})`
+        pulseCtx.lineWidth = 3
+        pulseCtx.stroke()
+      }
+
+      pulseEntity.billboard.image = pulseCanvas
+    })
+  </script>
+</body>
+</html>

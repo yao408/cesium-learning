@@ -221,7 +221,7 @@ const { runGPUViewshed, clearGPUViewshed } = useViewshedGPU()
 const { runFirePointSimulation } = useFireSimulation()
 const { isFirstPerson, enterFirstPerson: fpEnter, exitFirstPerson: fpExit } = useFirstPerson()
 
-const observerHeight = ref(20)
+const observerHeight = ref(1)
 const maxDistance = ref(5000)
 const stepSize = ref(50)
 const analysisMode = ref('viewshed')
@@ -628,10 +628,9 @@ function addDome(p) {
       outline: true,
       outlineColor: new Cesium.Color(0.4, 0.8, 1.0, 0.5),
       outlineWidth: 2,
-      height: 0,
     },
   })
-  domeEntities.push(groundCircle)
+  groundCircle.clampToGround = true
 }
 
 async function runGPUAll() {

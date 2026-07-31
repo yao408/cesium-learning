@@ -1,13 +1,42 @@
 <template>
   <div id="app">
-    <div class="bg-orbs">
+    <div class="bg-orbs" v-show="!hideNav">
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
       <div class="orb orb-3"></div>
     </div>
-    <div ref="cesiumContainer" class="globe-container"></div>
-    <MapControls />
-    <div class="nav-wrapper" :class="{ collapsed: navCollapsed }">
+    <div ref="cesiumContainer" class="globe-container" v-show="!hideNav"></div>
+    <MapControls v-show="!hideNav" />
+    <Toolbar v-show="!hideNav" @select-tool="onSelectTool" />
+    <PanelContainer 
+      v-show="!hideNav" 
+      :active-tool="activeTool" 
+      @close="activeTool = ''"
+    >
+      <div v-if="activeTool === 'data'">
+        <GeoJSONPanel 
+          :viewer="viewerStore.viewer" 
+          :store="store" 
+          :clearAll="clearAll" 
+        />
+      </div>
+      <div v-else-if="activeTool === 'link'">
+        <LinkServicePanel />
+      </div>
+      <div v-else-if="activeTool === 'viewshed'">
+        <p style="color: rgba(255,255,255,0.6); font-size: 13px;">通视分析功能</p>
+      </div>
+      <div v-else-if="activeTool === 'measure'">
+        <p style="color: rgba(255,255,255,0.6); font-size: 13px;">测量工具</p>
+      </div>
+      <div v-else-if="activeTool === 'draw'">
+        <p style="color: rgba(255,255,255,0.6); font-size: 13px;">绘制工具</p>
+      </div>
+      <div v-else-if="activeTool === 'layers'">
+        <p style="color: rgba(255,255,255,0.6); font-size: 13px;">图层管理</p>
+      </div>
+    </PanelContainer>
+    <div class="nav-wrapper" :class="{ collapsed: navCollapsed }" v-show="!hideNav">
       <nav class="top-nav">
         <div class="nav-dock">
           <span class="nav-brand">山地灾害监测</span>
@@ -59,26 +88,43 @@
         {{ navCollapsed ? '▼' : '▲' }}
       </button>
     </div>
-    <div class="router-view">
+    <div class="router-view" :class="{ 'router-view-interactive': hideNav }">
       <router-view v-slot="{ Component }">
-        <Transition name="fade" mode="out-in">
+        <KeepAlive include="Dashboard">
           <component :is="Component" />
-        </Transition>
+        </KeepAlive>
       </router-view>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useScenarioStore } from './stores/scenarioStore.js'
 import { useViewerStore } from './stores/viewerStore.js'
 import MapControls from './components/MapControls.vue'
+import Toolbar from './components/Toolbar.vue'
+import PanelContainer from './components/PanelContainer.vue'
+import GeoJSONPanel from './components/panels/GeoJSONPanel.vue'
+import LinkServicePanel from './components/panels/LinkServicePanel.vue'
+import { useSiteMarkers } from './composables/useSiteMarkers.js'
 
+const route = useRoute()
 const navCollapsed = ref(false)
+const hideNav = computed(() => route.meta.plain)
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
+const { clearAll } = useSiteMarkers()
 const cesiumContainer = ref(null)
+
+// 工具栏状态
+const activeTool = ref('')
+
+function onSelectTool(tool) {
+  activeTool.value = tool
+  console.log('选中工具:', tool)
+}
 
 onMounted(() => {
   viewerStore.init(cesiumContainer.value)
@@ -229,11 +275,11 @@ onMounted(() => {
 }
 
 .router-view { flex: 1; overflow: hidden; position: relative; z-index: 1; pointer-events: none; }
+.router-view-interactive { pointer-events: auto; }
 
 .globe-container {
   position: fixed; inset: 0; z-index: 0;
   width: 100vw; height: 100vh;
 }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+
 </style>

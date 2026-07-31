@@ -242,7 +242,7 @@ function drawDemoMarkers() {
   if (!viewer) return
 
   const markers = [
-    { lon: 104.0694, lat: 31.5685, color: '#3b82f6', shape: 'diamond', label: '指挥中心' },
+    { lon: 104.0694, lat: 31.5685, color: '#3b82f6', shape: 'diamond' },
     { lon: 104.08, lat: 31.56, color: '#38bdf8', shape: 'circle', label: '监测站 A' },
     { lon: 104.05, lat: 31.575, color: '#818cf8', shape: 'hexagon', label: '监测站 B' },
   ]
@@ -264,17 +264,21 @@ function drawDemoMarkers() {
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 500000, 0.5),
         },
-        label: {
-          text: m.label,
-          font: '11px "PingFang SC", "Microsoft YaHei", sans-serif',
-          fillColor: Cesium.Color.fromCssColorString('#e0e7ff'),
-          outlineColor: Cesium.Color.fromCssColorString('#0f172a'),
-          outlineWidth: 3,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -28),
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-        },
-        name: `标记-${m.label}`,
+        ...(m.label ? {
+          label: {
+            text: m.label,
+            font: '11px "PingFang SC", "Microsoft YaHei", sans-serif',
+            fillColor: Cesium.Color.fromCssColorString('#e0e7ff'),
+            outlineColor: Cesium.Color.fromCssColorString('#0f172a'),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -28),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          name: `标记-${m.label}`,
+        } : {
+          name: '标记-震中',
+        }),
       })
     })
   })

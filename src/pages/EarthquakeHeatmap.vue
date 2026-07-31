@@ -33,6 +33,23 @@
         </select>
       </div>
 
+      <div class="panel">
+        <span class="label">⚡ 渲染模式</span>
+        <select v-model="usePrimitive" @change="updateQuakes">
+          <option :value="true">Primitive (高性能)</option>
+          <option :value="false">Entity (可交互)</option>
+        </select>
+      </div>
+
+      <div v-if="!usePrimitive" class="panel">
+        <span class="label">🎨 显示样式</span>
+        <select v-model="renderMode" @change="updateQuakes">
+          <option value="cylinder">圆柱 (解决深度冲突)</option>
+          <option value="point">半透明点 (贴地)</option>
+          <option value="pointOffset">半透明点+高度偏移</option>
+        </select>
+      </div>
+
       <div class="stats">
         <p>📡 共 <strong>{{ quakes.length }}</strong> 条地震记录</p>
         <p v-if="quakes.length">🔺 最大震级: <strong>{{ maxMag.toFixed(1) }}</strong></p>
@@ -41,6 +58,20 @@
           <p>✅ 已选中震中</p>
           <p>{{ selectedQuake.lat.toFixed(4) }}°N, {{ selectedQuake.lon.toFixed(4) }}°E</p>
           <p class="hint">已联动数据接入模块</p>
+        </div>
+        <div class="cache-info">
+          <p>💾 缓存状态:</p>
+          <p class="cache-item">
+            <span :class="{ 'cached': dataCache.hour }">1小时</span>
+            <span :class="{ 'cached': dataCache.day }">24小时</span>
+            <span :class="{ 'cached': dataCache.week }">7天</span>
+            <span :class="{ 'cached': dataCache.month }">30天</span>
+          </p>
+        </div>
+        <div class="perf-info" v-if="perfStats.initialLoadTime > 0">
+          <p>⚡ 加载时间: <strong>{{ perfStats.initialLoadTime.toFixed(0) }}ms</strong></p>
+          <p>🔄 圆柱更新: <strong>{{ perfStats.lastUpdateTime.toFixed(0) }}ms</strong></p>
+          <p>📊 圆柱数量: <strong>{{ perfStats.entityCount + perfStats.clusterCount }}</strong></p>
         </div>
       </div>
       </div>
@@ -75,6 +106,20 @@ let currentBaseLayer = null
 let quakeEntities = []
 let clusterEntities = []
 let glowEntities = []
+
+// Primitive 优化相关
+let quakePrimitive = null
+let clusterPrimitive = null
+const usePrimitive = ref(true)  // true=使用Primitive, false=使用Entity
+const renderMode = ref('cylinder') // 'cylinder' | 'point' | 'pointOffset' 渲染模式
+
+// 数据缓存
+const dataCache = ref({
+  hour: null,
+  day: null,
+  week: null,
+  month: null
+})
 let clickHandler = null
 let selectedEntity = null
 let _pulseEntity = null
@@ -92,6 +137,14 @@ const maxMag = computed(() => {
   return Math.max(...quakes.value.map(q => q.mag))
 })
 
+// 性能监控数据
+const perfStats = ref({
+  initialLoadTime: 0,
+  lastUpdateTime: 0,
+  entityCount: 0,
+  clusterCount: 0
+})
+
 const latestPlace = computed(() => {
   if (!quakes.value.length) return '-'
   const sorted = [...quakes.value].sort((a, b) => b.time - a.time)
@@ -105,11 +158,69 @@ function getStartTime() {
 }
 
 async function fetchData() {
+  const startTime = performance.now()
+  const cacheKey = timeRange.value
+  
+  // 检查缓存
+  if (dataCache.value[cacheKey]) {
+    console.log(`[缓存] 使用缓存数据: ${cacheKey}`)
+    quakes.value = dataCache.value[cacheKey]
+    store.setEarthquakeData(quakes.value)
+    updateQuakes()
+    initClickHandler()
+    
+    perfStats.value.initialLoadTime = performance.now() - startTime
+    console.log(`[性能] 缓存加载完成: ${perfStats.value.initialLoadTime.toFixed(2)}ms, 地震数量: ${quakes.value.length}`)
+    return
+  }
+  
+  // 尝试加载本地 JSON（仅 30 天数据）
+  if (timeRange.value === 'month') {
+    try {
+      console.log('[本地] 尝试加载本地 JSON')
+      const res = await fetch('/earthquake_30d.json')
+      if (res.ok) {
+        const data = await res.json()
+        const parsedData = data.features.map(f => ({
+          lat: f.geometry.coordinates[1],
+          lon: f.geometry.coordinates[0],
+          mag: f.properties.mag,
+          depth: f.geometry.coordinates[2],
+          place: f.properties.place,
+          time: f.properties.time
+        }))
+        
+        // 存入缓存
+        dataCache.value[cacheKey] = parsedData
+        quakes.value = parsedData
+        store.setEarthquakeData(quakes.value)
+        updateQuakes()
+        initClickHandler()
+        
+        perfStats.value.initialLoadTime = performance.now() - startTime
+        console.log(`[性能] 本地加载完成: ${perfStats.value.initialLoadTime.toFixed(2)}ms, 地震数量: ${quakes.value.length}`)
+        
+        // 后台静默更新最新数据（可选）
+        fetchLatestData()
+        return
+      }
+    } catch (e) {
+      console.log('[本地] 本地文件不存在，回退到 API')
+    }
+  }
+  
+  // 回退到 API 请求
+  await fetchFromAPI(startTime)
+}
+
+async function fetchFromAPI(startTime) {
+  const cacheKey = timeRange.value
   try {
+    console.log(`[网络] 请求 API: ${cacheKey}`)
     const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${getStartTime()}`
     const res = await fetch(url)
     const data = await res.json()
-    quakes.value = data.features.map(f => ({
+    const parsedData = data.features.map(f => ({
       lat: f.geometry.coordinates[1],
       lon: f.geometry.coordinates[0],
       mag: f.properties.mag,
@@ -117,11 +228,46 @@ async function fetchData() {
       place: f.properties.place,
       time: f.properties.time
     }))
+    
+    // 存入缓存
+    dataCache.value[cacheKey] = parsedData
+    quakes.value = parsedData
     store.setEarthquakeData(quakes.value)
-  updateQuakes()
-  initClickHandler()
+    updateQuakes()
+    initClickHandler()
+    
+    perfStats.value.initialLoadTime = performance.now() - startTime
+    console.log(`[性能] 网络加载完成: ${perfStats.value.initialLoadTime.toFixed(2)}ms, 地震数量: ${quakes.value.length}`)
   } catch (e) {
     console.error('地震数据获取失败:', e)
+  }
+}
+
+// 后台获取最新数据（不阻塞显示）
+async function fetchLatestData() {
+  try {
+    console.log('[后台] 获取最新数据...')
+    const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${getStartTime()}`
+    const res = await fetch(url)
+    const data = await res.json()
+    const parsedData = data.features.map(f => ({
+      lat: f.geometry.coordinates[1],
+      lon: f.geometry.coordinates[0],
+      mag: f.properties.mag,
+      depth: f.geometry.coordinates[2],
+      place: f.properties.place,
+      time: f.properties.time
+    }))
+    
+    // 如果数据有变化，静默更新
+    if (parsedData.length !== dataCache.value.month?.length) {
+      dataCache.value.month = parsedData
+      quakes.value = parsedData
+      updateQuakes()
+      console.log(`[后台] 数据已更新: ${parsedData.length} 条`)
+    }
+  } catch (e) {
+    console.log('[后台] 更新失败，使用本地数据')
   }
 }
 
@@ -144,6 +290,15 @@ function clearQuakeEntities() {
     quakeEntities.forEach(e => viewer.entities.remove(e))
     clusterEntities.forEach(e => viewer.entities.remove(e))
     glowEntities.forEach(e => viewer.entities.remove(e))
+    // 清除 Primitive
+    if (quakePrimitive) {
+      viewer.scene.primitives.remove(quakePrimitive)
+      quakePrimitive = null
+    }
+    if (clusterPrimitive) {
+      viewer.scene.primitives.remove(clusterPrimitive)
+      clusterPrimitive = null
+    }
   }
   quakeEntities = []
   clusterEntities = []
@@ -201,65 +356,198 @@ function clusterQuakes(quakes, cellSize) {
 
 function buildClusterEntities(filtered) {
   if (!viewer) return
+  
+  // 清除旧的
   clusterEntities.forEach(e => viewer.entities.remove(e))
   clusterEntities = []
+  if (clusterPrimitive) {
+    viewer.scene.primitives.remove(clusterPrimitive)
+    clusterPrimitive = null
+  }
 
   const cellSize = lastCameraHeight > 500000 ? 2 : 0.5
   const groups = clusterQuakes(filtered, cellSize)
 
-  groups.forEach((group, idx) => {
-    const maxMagVal = Math.max(...group.map(q => q.mag))
-    const avgLon = group.reduce((s, q) => s + q.lon, 0) / group.length
-    const avgLat = group.reduce((s, q) => s + q.lat, 0) / group.length
-    const cylHeight = 80000
-    const radius = 30000
-    const entity = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(avgLon, avgLat, cylHeight / 2),
-      cylinder: {
-        length: cylHeight,
-        topRadius: radius,
-        bottomRadius: radius,
-        material: magToColor(maxMagVal),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-      show: false,
+  if (usePrimitive.value) {
+    // 使用 Primitive - 高性能批量渲染
+    const instances = []
+    groups.forEach(group => {
+      const maxMagVal = Math.max(...group.map(q => q.mag))
+      const avgLon = group.reduce((s, q) => s + q.lon, 0) / group.length
+      const avgLat = group.reduce((s, q) => s + q.lat, 0) / group.length
+      const cylHeight = 80000
+      const radius = 30000
+      
+      const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+        Cesium.Cartesian3.fromDegrees(avgLon, avgLat, cylHeight / 2)
+      )
+      
+      instances.push(new Cesium.GeometryInstance({
+        geometry: new Cesium.CylinderGeometry({
+          length: cylHeight,
+          topRadius: radius,
+          bottomRadius: radius,
+          slices: 32
+        }),
+        modelMatrix: modelMatrix,
+        attributes: {
+          color: Cesium.ColorGeometryInstanceAttribute.fromColor(magToColor(maxMagVal))
+        }
+      }))
     })
-    entity._quakeData = { lon: avgLon, lat: avgLat, mag: maxMagVal, depth: group[0].depth, place: group[0].place, time: group[0].time }
-    clusterEntities.push(entity)
-  })
+    
+    if (instances.length > 0) {
+      clusterPrimitive = new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PerInstanceColorAppearance({
+          closed: true,
+          translucent: false
+        }),
+        show: false
+      })
+      viewer.scene.primitives.add(clusterPrimitive)
+    }
+  } else {
+    // 使用 Entity - 保留点击交互
+    groups.forEach((group, idx) => {
+      const maxMagVal = Math.max(...group.map(q => q.mag))
+      const avgLon = group.reduce((s, q) => s + q.lon, 0) / group.length
+      const avgLat = group.reduce((s, q) => s + q.lat, 0) / group.length
+      const cylHeight = 80000
+      const radius = 30000
+      const entity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(avgLon, avgLat, cylHeight / 2),
+        cylinder: {
+          length: cylHeight,
+          topRadius: radius,
+          bottomRadius: radius,
+          material: magToColor(maxMagVal),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        show: false,
+      })
+      entity._quakeData = { lon: avgLon, lat: avgLat, mag: maxMagVal, depth: group[0].depth, place: group[0].place, time: group[0].time }
+      clusterEntities.push(entity)
+    })
+  }
 }
 
 function buildIndividualEntities(filtered) {
   if (!viewer) return
+  
+  // 清除旧的
   quakeEntities.forEach(e => viewer.entities.remove(e))
   quakeEntities = []
+  if (quakePrimitive) {
+    viewer.scene.primitives.remove(quakePrimitive)
+    quakePrimitive = null
+  }
 
-  filtered.forEach(q => {
-    const cylHeight = 25000
-    const radius = 1000
-    const entity = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(q.lon, q.lat, cylHeight / 2),
-      cylinder: {
-        length: cylHeight,
-        topRadius: radius,
-        bottomRadius: radius,
-        material: magToColor(q.mag),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-      show: false,
+  if (usePrimitive.value) {
+    // 使用 Primitive - 高性能批量渲染
+    const instances = []
+    filtered.forEach(q => {
+      const cylHeight = 25000
+      const radius = 1000
+      
+      const modelMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+        Cesium.Cartesian3.fromDegrees(q.lon, q.lat, cylHeight / 2)
+      )
+      
+      instances.push(new Cesium.GeometryInstance({
+        geometry: new Cesium.CylinderGeometry({
+          length: cylHeight,
+          topRadius: radius,
+          bottomRadius: radius,
+          slices: 32
+        }),
+        modelMatrix: modelMatrix,
+        attributes: {
+          color: Cesium.ColorGeometryInstanceAttribute.fromColor(magToColor(q.mag))
+        }
+      }))
     })
-    entity._quakeData = { lon: q.lon, lat: q.lat, mag: q.mag, depth: q.depth, place: q.place, time: q.time }
-    entity._baseColor = magToColor(q.mag).clone()
-    quakeEntities.push(entity)
-  })
+
+    if (instances.length > 0) {
+      quakePrimitive = new Cesium.Primitive({
+        geometryInstances: instances,
+        appearance: new Cesium.PerInstanceColorAppearance({
+          closed: true,
+          translucent: false
+        }),
+        show: false
+      })
+      viewer.scene.primitives.add(quakePrimitive)
+    }
+  } else {
+    // 使用 Entity - 保留点击交互，支持多种渲染模式
+    filtered.forEach(q => {
+      let entity
+      
+      if (renderMode.value === 'cylinder') {
+        // 方案1：圆柱（当前方案）
+        const cylHeight = 25000
+        const radius = 1000
+        entity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(q.lon, q.lat, cylHeight / 2),
+          cylinder: {
+            length: cylHeight,
+            topRadius: radius,
+            bottomRadius: radius,
+            material: magToColor(q.mag),
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+          show: false,
+        })
+        entity._baseColor = magToColor(q.mag).clone()
+      } else if (renderMode.value === 'point') {
+        // 方案2：半透明点（贴地，可能有深度冲突）
+        entity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(q.lon, q.lat),
+          point: {
+            pixelSize: 15,
+            color: magToColor(q.mag).withAlpha(0.6),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 1,
+            // 没有 heightReference，默认贴地
+          },
+          show: false,
+        })
+      } else if (renderMode.value === 'pointOffset') {
+        // 方案3：半透明点 + 高度偏移（解决深度冲突）
+        entity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(q.lon, q.lat, 500), // 高出地面500米
+          point: {
+            pixelSize: 15,
+            color: magToColor(q.mag).withAlpha(0.6),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 1,
+            heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+          },
+          show: false,
+        })
+      }
+      
+      entity._quakeData = { lon: q.lon, lat: q.lat, mag: q.mag, depth: q.depth, place: q.place, time: q.time }
+      quakeEntities.push(entity)
+    })
+  }
 }
 
 function syncShowByCamera() {
   if (!viewer) return
   const h = viewer.camera.positionCartographic.height
   const isCluster = h > 160000
-  clusterEntities.forEach(e => { e.show = isCluster })
-  quakeEntities.forEach(e => { e.show = !isCluster })
+  
+  if (usePrimitive.value) {
+    // Primitive 模式
+    if (clusterPrimitive) clusterPrimitive.show = isCluster
+    if (quakePrimitive) quakePrimitive.show = !isCluster
+  } else {
+    // Entity 模式
+    clusterEntities.forEach(e => { e.show = isCluster })
+    quakeEntities.forEach(e => { e.show = !isCluster })
+  }
 }
 
 function startPulse(entity) {
@@ -301,11 +589,19 @@ function syncCylinderScale() {
 
 function updateQuakes() {
   if (!viewer) return
+  const updateStart = performance.now()
   const display = quakes.value.filter(q => q.mag >= minMag.value)
   buildClusterEntities(display)
   buildIndividualEntities(display)
   syncShowByCamera()
   syncCylinderScale()
+  
+  // 记录更新时间
+    perfStats.value.lastUpdateTime = performance.now() - updateStart
+    perfStats.value.entityCount = usePrimitive.value ? (quakePrimitive?.geometryInstances?.length || 0) : quakeEntities.length
+    perfStats.value.clusterCount = usePrimitive.value ? (clusterPrimitive?.geometryInstances?.length || 0) : clusterEntities.length
+    const mode = usePrimitive.value ? 'Primitive' : 'Entity'
+    console.log(`[性能] 圆柱更新完成 (${mode}): ${perfStats.value.lastUpdateTime.toFixed(2)}ms, 个体: ${perfStats.value.entityCount}, 聚合: ${perfStats.value.clusterCount}`)
 }
 
 function switchStyle() {
@@ -527,6 +823,42 @@ select {
 }
 .selected-info p { color: #2d8a4e; font-weight: 600; }
 .selected-info .hint { font-size: 10px; color: #8b7e6a; font-weight: 400; }
+.perf-info {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(45, 138, 78, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(45, 138, 78, 0.15);
+  font-size: 11px;
+}
+.perf-info p { margin: 2px 0; color: #5a4e3c; }
+.perf-info strong { color: #2d8a4e; }
+.cache-info {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 6px;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  font-size: 11px;
+}
+.cache-info p { margin: 2px 0; color: #5a4e3c; }
+.cache-item {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cache-item span {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #94a3b8;
+  font-size: 10px;
+}
+.cache-item span.cached {
+  background: rgba(34, 197, 94, 0.2);
+  color: #16a34a;
+  font-weight: 500;
+}
 .map-area { position: absolute; inset: 0; z-index: 0;pointer-events: none; }
 .preset-btn {
   padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(45, 138, 78, 0.2);

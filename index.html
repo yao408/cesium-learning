@@ -1,13 +1,22 @@
+<!-- 是 H5，也是 WebApp，手机端与桌面端都可访问，有 viewport，按手机屏幕宽度渲染
+文字大小正常，无需缩放 -->
+
 <!doctype html>
+<!-- 文档类型声明，指定文档为 HTML5 文档 -->
 <html lang="en">
+  <!-- 语言为英文 -->
   <head>
     <meta charset="UTF-8" />
+    <!-- 文档编码为 UTF-8 -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- 文档图标为 favicon.svg -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 视口设置，初始缩放比例为 1.0 -->
     <title>cesium-learning</title>
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
+    <!-- type="module" 表示用 ES6 模块化加载。引入 main.js 文件，作为 Vue 应用的入口 -->
   </body>
 </html>

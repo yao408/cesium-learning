@@ -98,13 +98,12 @@ export function calcPolygonArea(pts) {
   const n = pts.length
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n
-    const x1 = pts[i].lng * Math.cos((pts[i].lat * Math.PI) / 180)
-    const y1 = pts[i].lat
-    const x2 = pts[j].lng * Math.cos((pts[j].lat * Math.PI) / 180)
-    const y2 = pts[j].lat
-    area += x1 * y2 - x2 * y1
+    const lat1 = pts[i].lat * Math.PI / 180
+    const lat2 = pts[j].lat * Math.PI / 180
+    const dLng = (pts[j].lng - pts[i].lng) * Math.PI / 180
+    area += dLng * (Math.sin(lat2) + Math.sin(lat1))
   }
-  area = Math.abs(area / 2) * (Math.PI / 180) * R * R
+  area = Math.abs(area * R * R / 2)
   return area
 }
 

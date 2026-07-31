@@ -31,11 +31,7 @@
             <span class="info-label">监测站点</span>
             <span class="info-value count">{{ watchtowers.length }} 个</span>
           </div>
-          <div class="info-row" v-if="maxMagnitude > 0">
-            <span class="info-label">最高震级</span>
-            <span class="info-value count danger">M{{ maxMagnitude.toFixed(1) }}</span>
           </div>
-        </div>
       </div>
 
       <div class="control-card">
@@ -67,6 +63,34 @@
           <div class="control-row" style="margin-top:4px">
             <button class="control-btn primary" @click="triggerDispatch">🎯 切换至震中</button>
           </div>
+          <template v-if="false">
+          <div class="control-row" style="margin-top:12px">
+            <span class="control-label">性能对比</span>
+          </div>
+          <div class="control-row" style="margin-top:4px;display:flex;gap:6px;">
+            <button
+              class="control-btn"
+              :class="{ primary: perfMode === 'entities' }"
+              :style="perfMode === 'entities' ? 'background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.4);' : ''"
+              @click="perfMode === 'entities' ? stopPerf(viewerStore.viewer) : runEntitiesMode(viewerStore.viewer)"
+            >
+              {{ perfMode === 'entities' ? '⏹ 停止' : '🐢 entities' }}
+            </button>
+            <button
+              class="control-btn"
+              :class="{ primary: perfMode === 'primitive' }"
+              :style="perfMode === 'primitive' ? 'background:rgba(74,222,128,0.2);border-color:rgba(74,222,128,0.4);' : ''"
+              @click="perfMode === 'primitive' ? stopPerf(viewerStore.viewer) : runPrimitiveMode(viewerStore.viewer)"
+            >
+              {{ perfMode === 'primitive' ? '⏹ 停止' : '🚀 primitive' }}
+            </button>
+          </div>
+          <div class="control-row" style="margin-top:4px" v-if="perfRunning">
+            <span class="control-value" style="color:#4ade80;font-size:13px;">
+              {{ perfMode === 'entities' ? '🔴' : '🟢' }} {{ perfMode }} · {{ perfFps }} FPS
+            </span>
+          </div>
+          </template>
         </div>
       </div>
 
@@ -216,6 +240,11 @@
           <span class="toggle-dot" :style="{ background: layer.color }"></span>
           <span>{{ layer.label }}</span>
         </button>
+      <!-- 改为 -->
+    <button class="toggle-btn manage-btn" :class="{ active: showStationManage }" @click="togglePanel('stationManage')">
+          <span class="toggle-dot" style="background: #4ade80"></span>
+          <span>站点管理</span>
+        </button>
       </div>
     </div>
 
@@ -235,10 +264,19 @@
       </div>
     </div>
   </div>
+
+  <div class="data-entry-btn" @click="goToDataManagement" title="数据管理">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+      <line x1="3" y1="9" x2="21" y2="9"/>
+      <line x1="9" y1="21" x2="9" y2="9"/>
+    </svg>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import * as Cesium from 'cesium'
 import { useViewerStore } from '../stores/viewerStore.js'
 import { useScenarioStore } from '../stores/scenarioStore.js'
@@ -248,33 +286,25 @@ import { useVehicleSimulation } from '../composables/useVehicleSimulation.js'
 import { useViewshedAnalysis } from '../composables/useViewshedAnalysis.js'
 import { GPUFloodSim } from '../utils/gpuFloodSim.js'
 import { calcPolygonArea } from '../utils/geo.js'
+import { usePointPerformance } from '../composables/usePointPerformance.js'
 
 const viewerStore = useViewerStore()
 const store = useScenarioStore()
 const { clearAll, loadWatchtowers, addVillageDot, markers } = useSiteMarkers()
 const { flyToAOI } = useCameraInit()
 const { vehicleSlots, activeSlotId, vehicleSpeed, cameraLocked, setup: setupVehicles, teardown: teardownVehicles, startSimulation, setVehiclePanelVisible, toggleCameraLock, switchVehicleSlot, autoLoadDispatchScenario } = useVehicleSimulation()
+const { isRunning: perfRunning, mode: perfMode, fps: perfFps, runEntitiesMode, runPrimitiveMode, stop: stopPerf } = usePointPerformance()
 
 const demoData = {
   epicenter: { lon: 104.0694, lat: 31.5685, mag: 6.5, depth: 10, time: '2008-05-12T14:28:00', place: '四川省德阳市绵竹市清平镇' },
   aoi: { minLng: 103.60, maxLng: 105.00, minLat: 31.00, maxLat: 32.10 },
   name: '德阳市绵竹市',
-  watchtowers: [
-    { name: '强震监测站-01', lng: 104.0780, lat: 31.5750, height: 55 },
-    { name: '强震监测站-02', lng: 104.0400, lat: 31.5400, height: 50 },
-    { name: '强震监测站-03', lng: 104.1200, lat: 31.6000, height: 60 },
-    { name: '地灾监测点-01', lng: 104.2000, lat: 31.6200, height: 40 },
-    { name: '地灾监测点-02', lng: 103.9000, lat: 31.5000, height: 45 },
-    { name: '地灾监测点-03', lng: 104.3500, lat: 31.4500, height: 42 },
-    { name: '地灾监测点-04', lng: 103.8000, lat: 31.6500, height: 38 },
-    { name: '地灾监测点-05', lng: 104.3000, lat: 31.7500, height: 48 },
-  ],
 }
 
 const hasImportedData = computed(() => !!(store.aoi || store.earthquakeData?.length))
 
 const aoi = computed(() => store.aoi || demoData.aoi)
-const watchtowers = computed(() => store.watchtowers?.length ? store.watchtowers : demoData.watchtowers)
+const watchtowers = computed(() => store.watchtowers)
 const earthquakeList = computed(() => {
   if (store.selectedEarthquake) return [store.selectedEarthquake]
   return [demoData.epicenter]
@@ -283,9 +313,7 @@ const earthquakeList = computed(() => {
 const aoiEntities = []       // 研究区相关实体
 const floodEntity = ref(null)
 const epicenterEntities = []  // 震中相关实体
-const deyangBoundaryEntities = []  // 德阳边界实体
 let deyangBoundaryDS = null     // 德阳边界DataSource
-const cityBoundaryEntities = []  // 邻市边界实体
 const cityBoundaryDSList = []    // 邻市边界DataSource列表
 let pulseHandler = null
 let tipTimer = null
@@ -293,6 +321,24 @@ const showTipBar = ref(false)
 const showVehiclePanel = ref(false)
 const showStationPanel = ref(false)
 const showFloodPanel = ref(false)
+const showStationManage = ref(false)
+const router = useRouter()
+
+const goToDataManagement = () => {
+  router.push('/data-management')
+}
+
+const stationFormVisible = ref(false)
+const editingStationId = ref(null)
+const stationFormData = reactive({
+  name: '',
+  type: '强震监测站',
+  lng: 104.07,
+  lat: 31.57,
+  height: 50,
+  status: 'online',
+  description: ''
+})
 const tipIndex = ref(0)
 const tips = [
   '🖱️ 右键点击地图任意位置 → 触发洪水模拟',
@@ -333,8 +379,6 @@ const layers = [
   { key: 'villages', label: '村庄', color: '#f97316', visible: layerVisible },
   { key: 'watchtowers', label: '通视', color: '#a78bfa', visible: layerVisible },
   { key: 'vehicles', label: '车辆', color: '#e74c3c', visible: layerVisible },
-  { key: 'deyangBoundary', label: '德阳边界', color: '#f59e0b', visible: layerVisible },
-  { key: 'cityBoundary', label: '邻市边界', color: '#94a3b8', visible: layerVisible },
   { key: 'viewshed', label: '通视线', color: '#4ade80', visible: layerVisible },
 ]
 
@@ -418,6 +462,80 @@ function togglePanel(panel) {
   if (panel === 'vehicle') showVehiclePanel.value = !showVehiclePanel.value
   if (panel === 'station') showStationPanel.value = !showStationPanel.value
   if (panel === 'flood') showFloodPanel.value = !showFloodPanel.value
+  if (panel === 'stationManage') showStationManage.value = !showStationManage.value
+}
+
+function openStationForm(station = null) {
+  if (station) {
+    editingStationId.value = station.id
+    stationFormData.name = station.name
+    stationFormData.type = station.type || '强震监测站'
+    stationFormData.lng = station.lng
+    stationFormData.lat = station.lat
+    stationFormData.height = station.height || 50
+    stationFormData.status = station.status || 'online'
+    stationFormData.description = station.description || ''
+  } else {
+    editingStationId.value = null
+    stationFormData.name = ''
+    stationFormData.type = '强震监测站'
+    stationFormData.lng = 104.07
+    stationFormData.lat = 31.57
+    stationFormData.height = 50
+    stationFormData.status = 'online'
+    stationFormData.description = ''
+  }
+  stationFormVisible.value = true
+}
+
+function resetStationForm() {
+  stationFormVisible.value = false
+  editingStationId.value = null
+}
+
+async function saveStation() {
+  const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080'
+  const payload = {
+    name: stationFormData.name,
+    type: stationFormData.type,
+    lng: stationFormData.lng,
+    lat: stationFormData.lat,
+    height: stationFormData.height,
+    status: stationFormData.status,
+    description: stationFormData.description
+  }
+  try {
+    const url = editingStationId.value
+      ? `${BACKEND}/api/stations/${editingStationId.value}`
+      : `${BACKEND}/api/stations`
+    const method = editingStationId.value ? 'PUT' : 'POST'
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) throw new Error('保存失败')
+    await store.loadWatchtowersFromBackend()
+    resetStationForm()
+    drawWatchtowerBillboards()
+  } catch (e) {
+    console.error('保存站点失败:', e)
+    alert('保存失败，请检查后端是否启动')
+  }
+}
+
+async function deleteStation(station) {
+  if (!confirm(`确定删除站点 "${station.name}" 吗？`)) return
+  const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080'
+  try {
+    const res = await fetch(`${BACKEND}/api/stations/${station.id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('删除失败')
+    await store.loadWatchtowersFromBackend()
+    drawWatchtowerBillboards()
+  } catch (e) {
+    console.error('删除站点失败:', e)
+    alert('删除失败，请检查后端是否启动')
+  }
 }
 
 function triggerDispatch() {
@@ -435,10 +553,12 @@ function triggerDispatch() {
 
   cameraLocked.value = false
   viewer.camera.flyTo({
-    destination: Cesium.Rectangle.fromDegrees(
-      aoi.value.minLng, aoi.value.minLat,
-      aoi.value.maxLng, aoi.value.maxLat
-    ),
+    destination: Cesium.Cartesian3.fromDegrees(103.851397, 30.904505, 30826),
+    orientation: {
+      heading: Cesium.Math.toRadians(28.4),
+      pitch: Cesium.Math.toRadians(-25.7),
+      roll: Cesium.Math.toRadians(360.0),
+    },
     duration: 1.5,
   })
 
@@ -446,7 +566,7 @@ function triggerDispatch() {
 
   store.setDispatchCenter({ lng: ep.lon, lat: ep.lat, name: '指挥中心' })
 
-  loadWatchtowers(watchtowers.value)
+  drawWatchtowerBillboards()
 
   drawDeyangBoundary()
 
@@ -492,12 +612,6 @@ function toggleLayer(layer) {
     })
     setVehiclePanelVisible(layer.visible.vehicles)
   }
-  if (layer.key === 'deyangBoundary') {
-    deyangBoundaryEntities.forEach(e => { if (e) e.show = layer.visible.deyangBoundary })
-  }
-  if (layer.key === 'cityBoundary') {
-    cityBoundaryEntities.forEach(e => { if (e) e.show = layer.visible.cityBoundary })
-  }
   if (layer.key === 'watchtowers') {
     markers.value.forEach(m => {
       if (m.el.classList.contains('village-marker')) {
@@ -524,6 +638,29 @@ function toggleLayer(layer) {
 
 // ==================== 通视分析（右键触发） ====================
 function onMapRightClick(e) {
+  const viewer = viewerStore.viewer
+  if (!viewer) return
+
+  const pickedObj = viewer.scene.pick(e)
+  if (pickedObj && pickedObj.id && pickedObj.id.name) {
+    const name = pickedObj.id.name
+    const isStation = name.startsWith('监测站-') && !name.startsWith('监测站脉冲-')
+    const isPulse = name.startsWith('监测站脉冲-')
+    if (isStation || isPulse) {
+      e.preventDefault()
+      const stationName = name.replace(isPulse ? '监测站脉冲-' : '监测站-', '')
+      const idx = watchtowers.value.findIndex(t => t.name === stationName)
+      if (idx !== -1) {
+        ctxMenu.stationIdx = idx
+        ctxMenu.onStation = true
+        ctxMenu.x = e.clientX
+        ctxMenu.y = e.clientY
+        ctxMenu.show = true
+        return
+      }
+    }
+  }
+
   const marker = e.target.closest('.village-marker')
   if (marker && marker.dataset.stationIndex) {
     e.preventDefault()
@@ -536,8 +673,6 @@ function onMapRightClick(e) {
   }
   if (marker) return
   e.preventDefault()
-  const viewer = viewerStore.viewer
-  if (!viewer) return
   const cartesian = viewer.scene.pickPosition(e)
   if (cartesian) {
     const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
@@ -615,6 +750,17 @@ async function runFlood() {
   sim.setSourcePoint(lon, lat, 2000)
   sim.setFlowRate('medium')
   sim.startSimulation()
+
+  // 视角飞到模拟点正上方
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(lon, lat, 15000),
+    orientation: {
+      heading: Cesium.Math.toRadians(0),
+      pitch: Cesium.Math.toRadians(-90),
+      roll: 0,
+    },
+    duration: 1.5,
+  })
 
   const entry = reactive({ id, sim, boundary: null, stats: null, cardVisible: true, entities: [], _timer: null, _pollTimer: null })
   floodSims.push(entry)
@@ -909,6 +1055,308 @@ function clearEpicenter() {
   }
 }
 
+let epicenterMarkerEntity = null
+
+// 绘制震中菱形标记，采样地形高度后贴地 5 米
+function drawEpicenterMarker() {
+  const viewer = viewerStore.viewer
+  if (!viewer) return
+  clearEpicenterMarker()
+
+  const m = { lon: 104.0694, lat: 31.5685, color: '#3b82f6', shape: 'diamond' }
+
+  const iconCanvas = createGlowMarkerIcon(m.color, m.shape)
+  const cartographic = Cesium.Cartographic.fromDegrees(m.lon, m.lat)
+  Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, [cartographic]).then((samples) => {
+    const groundH = samples[0]?.height ?? 0
+    epicenterMarkerEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(m.lon, m.lat, groundH + 5),
+      billboard: {
+        image: iconCanvas,
+        width: 48,
+        height: 48,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 500000, 0.5),
+      },
+      name: '标记-震中',
+    })
+  })
+}
+
+function clearEpicenterMarker() {
+  const viewer = viewerStore.viewer
+  if (viewer && epicenterMarkerEntity) {
+    viewer.entities.remove(epicenterMarkerEntity)
+    epicenterMarkerEntity = null
+  }
+}
+
+let watchtowerBillboardEntities = []
+
+let watchtowerPulseEntities = []
+let watchtowerPulseCanvas = null
+let watchtowerPulseHandler = null
+
+// 绘制瞭望塔圆形发光标记 + 蓝色脉冲光环
+function drawWatchtowerBillboards() {
+  const viewer = viewerStore.viewer
+  if (!viewer) return
+  clearWatchtowerBillboards()
+
+  const towers = watchtowers.value
+  if (!towers || !towers.length) return
+
+  watchtowerPulseCanvas = document.createElement('canvas')
+  watchtowerPulseCanvas.width = 256
+  watchtowerPulseCanvas.height = 256
+
+  towers.forEach(t => {
+    const iconCanvas = createGlowMarkerIcon('#38bdf8', 'circle')
+    const towerTop = (t.groundElevation || 0) + (t.height || 0)
+    const pos = Cesium.Cartesian3.fromDegrees(t.lng ?? t.lon, t.lat, towerTop || 800)
+
+    const entity = viewer.entities.add({
+      position: pos,
+      billboard: {
+        image: iconCanvas,
+        width: 48,
+        height: 48,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 1.5, 500000, 0.5),
+      },
+      name: `监测站-${t.name}`,
+    })
+    watchtowerBillboardEntities.push(entity)
+
+    const pulseEntity = viewer.entities.add({
+      position: pos,
+      billboard: {
+        image: watchtowerPulseCanvas,
+        width: 80,
+        height: 80,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new Cesium.NearFarScalar(500, 2.0, 500000, 0.6),
+      },
+      name: `监测站脉冲-${t.name}`,
+    })
+    watchtowerPulseEntities.push(pulseEntity)
+  })
+
+  startWatchtowerPulse()
+
+  sampleAndSaveGroundElevations(towers)
+}
+
+// 蓝色脉冲光环动画，单圈扩散
+function startWatchtowerPulse() {
+  const viewer = viewerStore.viewer
+  if (!viewer || !watchtowerPulseCanvas) return
+  if (watchtowerPulseHandler) {
+    viewer.scene.postRender.removeEventListener(watchtowerPulseHandler)
+  }
+
+  const ctx = watchtowerPulseCanvas.getContext('2d')
+
+  watchtowerPulseHandler = viewer.scene.postRender.addEventListener(() => {
+    const t = Date.now() / 1000
+    ctx.clearRect(0, 0, 256, 256)
+
+    const cycleT = t % 2.0
+    const progress = cycleT / 2.0
+    const radius = 20 + progress * 90
+    const alpha = Math.max(0, 1 - progress)
+
+    ctx.beginPath()
+    ctx.arc(128, 128, radius, 0, 2 * Math.PI)
+    ctx.strokeStyle = `rgba(56, 189, 248, ${alpha * 0.6})`
+    ctx.lineWidth = 3
+    ctx.stroke()
+
+    const img = new Image()
+    img.src = watchtowerPulseCanvas.toDataURL('image/png')
+    watchtowerPulseEntities.forEach(e => {
+      e.billboard.image = img
+    })
+  })
+}
+
+async function sampleAndSaveGroundElevations(towers) {
+  const viewer = viewerStore.viewer
+  if (!viewer) return
+
+  const needSample = towers.filter(t => !t.groundElevation || t.groundElevation === 0)
+  if (!needSample.length) return
+
+  const cartographics = needSample.map(t => Cesium.Cartographic.fromDegrees(t.lng ?? t.lon, t.lat))
+  try {
+    const samples = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartographics)
+    const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080'
+    for (let i = 0; i < needSample.length; i++) {
+      const groundH = samples[i]?.height
+      if (groundH && groundH > 0) {
+        const t = needSample[i]
+        t.groundElevation = Math.round(groundH)
+        fetch(`${BACKEND}/api/stations/${t.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...t, groundElevation: t.groundElevation }),
+        }).catch(() => {})
+      }
+    }
+  } catch (e) {
+    console.warn('地形采样失败:', e)
+  }
+}
+
+function clearWatchtowerBillboards() {
+  const viewer = viewerStore.viewer
+  if (!viewer) return
+  watchtowerBillboardEntities.forEach(e => viewer.entities.remove(e))
+  watchtowerBillboardEntities = []
+  watchtowerPulseEntities.forEach(e => viewer.entities.remove(e))
+  watchtowerPulseEntities = []
+  if (watchtowerPulseHandler && viewer) {
+    viewer.scene.postRender.removeEventListener(watchtowerPulseHandler)
+    watchtowerPulseHandler = null
+  }
+  watchtowerPulseCanvas = null
+}
+
+// 创建发光标记图标 Canvas，支持 diamond / circle / hexagon 三种形状
+function createGlowMarkerIcon(color, shape) {
+  const size = 128
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  const cx = size / 2
+  const cy = size / 2
+
+  const glowGrad = ctx.createRadialGradient(cx, cy, 6, cx, cy, 56)
+  glowGrad.addColorStop(0, color + 'cc')
+  glowGrad.addColorStop(0.2, color + '44')
+  glowGrad.addColorStop(0.5, color + '11')
+  glowGrad.addColorStop(1, color + '00')
+  ctx.fillStyle = glowGrad
+  ctx.fillRect(0, 0, size, size)
+
+  ctx.fillStyle = color
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.5
+  ctx.shadowColor = color
+  ctx.shadowBlur = 12
+
+  if (shape === 'diamond') {
+    ctx.beginPath()
+    ctx.moveTo(cx, cy - 12)
+    ctx.lineTo(cx + 10, cy)
+    ctx.lineTo(cx, cy + 12)
+    ctx.lineTo(cx - 10, cy)
+    ctx.closePath()
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.2
+    ctx.shadowBlur = 0
+    ctx.stroke()
+  } else if (shape === 'hexagon') {
+    ctx.beginPath()
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 3) * i - Math.PI / 6
+      const r = 11
+      i === 0 ? ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a))
+        : ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a))
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.2
+    ctx.shadowBlur = 0
+    ctx.stroke()
+  } else if (shape === 'tower') {
+    ctx.lineWidth = 2
+    ctx.shadowBlur = 12
+    ctx.strokeStyle = color
+    ctx.fillStyle = color
+
+    const baseY = cy + 12
+    const bodyTop = cy - 4
+    const roofPeak = cy - 18
+
+    ctx.beginPath()
+    ctx.moveTo(cx - 5, bodyTop)
+    ctx.lineTo(cx - 5, baseY)
+    ctx.lineTo(cx + 5, baseY)
+    ctx.lineTo(cx + 5, bodyTop)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(cx - 9, bodyTop)
+    ctx.lineTo(cx, roofPeak)
+    ctx.lineTo(cx + 9, bodyTop)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.moveTo(cx - 8, baseY)
+    ctx.lineTo(cx - 8, baseY + 5)
+    ctx.lineTo(cx + 8, baseY + 5)
+    ctx.lineTo(cx + 8, baseY)
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+
+    ctx.shadowBlur = 0
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.2
+    ctx.setLineDash([2, 2])
+    const arcCX = cx
+    const arcCY = roofPeak
+    ;[10, 14, 18].forEach(r => {
+      ctx.beginPath()
+      ctx.arc(arcCX, arcCY, r, Math.PI, 0, false)
+      ctx.stroke()
+    })
+    ctx.setLineDash([])
+  } else {
+    ctx.clearRect(0, 0, size, size)
+    ctx.shadowBlur = 0
+
+    const tightGlow = ctx.createRadialGradient(cx, cy, 6, cx, cy, 16)
+    tightGlow.addColorStop(0, color + '66')
+    tightGlow.addColorStop(1, color + '00')
+    ctx.fillStyle = tightGlow
+    ctx.fillRect(0, 0, size, size)
+
+    ctx.beginPath()
+    ctx.arc(cx, cy, 7, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.fill()
+
+    ctx.beginPath()
+    ctx.arc(cx, cy, 10, 0, Math.PI * 2)
+    ctx.strokeStyle = color + '55'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.arc(cx - 2, cy - 2, 3, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(255,255,255,0.35)'
+    ctx.fill()
+  }
+
+  return canvas
+}
+
 async function drawDeyangBoundary() {
   clearDeyangBoundary()
   const viewer = viewerStore.viewer
@@ -934,7 +1382,6 @@ function clearDeyangBoundary() {
     viewer.dataSources.remove(deyangBoundaryDS, true)
     deyangBoundaryDS = null
   }
-  deyangBoundaryEntities.length = 0
 }
 
 async function drawCityBoundaries() {
@@ -967,7 +1414,6 @@ function clearCityBoundaries() {
   if (!viewer) return
   cityBoundaryDSList.forEach(ds => viewer.dataSources.remove(ds, true))
   cityBoundaryDSList.length = 0
-  cityBoundaryEntities.length = 0
 }
 
 watch(() => store.selectedEarthquake, (val) => {
@@ -984,12 +1430,29 @@ onMounted(async () => {
   const viewer = viewerStore.viewer
   if (!viewer) return
 
+  // 调试：在控制台输入 __dumpCamera() 打印当前相机参数
+  window.__dumpCamera = () => {
+    const c = viewer.camera
+    const cartographic = Cesium.Cartographic.fromCartesian(c.position)
+    const lon = Cesium.Math.toDegrees(cartographic.longitude).toFixed(6)
+    const lat = Cesium.Math.toDegrees(cartographic.latitude).toFixed(6)
+    const height = Math.round(cartographic.height)
+    const heading = Cesium.Math.toDegrees(c.heading).toFixed(1)
+    const pitch = Cesium.Math.toDegrees(c.pitch).toFixed(1)
+    const roll = Cesium.Math.toDegrees(c.roll).toFixed(1)
+    console.log(`destination: Cesium.Cartesian3.fromDegrees(${lon}, ${lat}, ${height}),`)
+    console.log(`orientation: { heading: Cesium.Math.toRadians(${heading}), pitch: Cesium.Math.toRadians(${pitch}), roll: Cesium.Math.toRadians(${roll}) },`)
+  }
+
   viewer.scene.globe.enableLighting = false
   viewer.scene.globe.depthTestAgainstTerrain = true
   viewer.scene.screenSpaceCameraController.minimumZoomDistance = 50
 
   viewer.container.addEventListener('contextmenu', onMapRightClick)
   document.addEventListener('click', hideContextMenu)
+
+  // 从后端加载监测站（如果后端不可用，会保持 store 中的空数组或默认值）
+  await store.loadWatchtowersFromBackend()
 
   await setupVehicles(viewer)
   await startSimulation()
@@ -1008,7 +1471,10 @@ onMounted(async () => {
   drawFlood()
   drawDeyangBoundary()
   drawCityBoundaries()
-  loadWatchtowers(watchtowers.value)
+  drawEpicenterMarker()
+  drawWatchtowerBillboards()
+
+
 })
 
 onBeforeUnmount(() => {
@@ -1021,8 +1487,11 @@ onBeforeUnmount(() => {
   closeViewshed()
   closeAllFloods()
   teardownVehicles()
+  stopPerf(viewer)
   clearFlood()
   clearEpicenter()
+  clearEpicenterMarker()
+  clearWatchtowerBillboards()
   clearDeyangBoundary()
   clearCityBoundaries()
   clearAll()
@@ -1037,10 +1506,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dashboard {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  min-height: 100vh;
   pointer-events: none;
-  z-index: 10;
 }
 
 .left-panel {
@@ -1762,5 +2230,294 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   border-radius: 4px;
   pointer-events: none;
+}
+
+/* ========== 监测站管理面板 ========== */
+.station-manage-panel {
+  top: 16px;
+  max-height: calc(100vh - 60px);
+  width: 320px;
+}
+
+.station-manage-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.station-add-btn {
+  padding: 10px 16px;
+  background: rgba(74, 222, 128, 0.15);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 8px;
+  color: #4ade80;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.station-add-btn:hover {
+  background: rgba(74, 222, 128, 0.25);
+}
+
+.station-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.station-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.station-manage-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.station-manage-row.editing {
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.station-row-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.station-row-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.station-row-color.seismic {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.station-row-color.hazard {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+}
+
+.station-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.station-row-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+}
+
+.station-row-type {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.station-row-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.station-action-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.station-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.station-action-btn.edit:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.station-action-btn.del:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.station-form {
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.station-form-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4ade80;
+  margin-bottom: 4px;
+}
+
+.station-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.station-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  grid-column: span 2;
+}
+
+.station-field.half {
+  grid-column: span 1;
+}
+
+.station-field.full {
+  grid-column: span 2;
+}
+
+.station-field span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.station-field input,
+.station-field select,
+.station-field textarea {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.station-field input:focus,
+.station-field select:focus,
+.station-field textarea:focus {
+  border-color: rgba(74, 222, 128, 0.4);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.station-field textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.station-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.station-form-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.station-form-btn.cancel {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.station-form-btn.cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.station-form-btn.save {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+
+.station-form-btn.save:hover {
+  background: rgba(74, 222, 128, 0.25);
+}
+
+.panel-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.panel-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.manage-btn {
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+.manage-btn.active {
+  background: rgba(74, 222, 128, 0.15);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.data-entry-btn {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  z-index: 999;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+
+.data-entry-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+  transform: scale(1.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
 </style>

@@ -39,7 +39,7 @@ export const useViewerStore = defineStore('viewer', () => {
     )
 
     v.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000),
+      destination: Cesium.Cartesian3.fromDegrees(104.07, 31.57, 80000),
     })
 
     ready.value = true

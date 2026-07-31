@@ -7,8 +7,8 @@ const routes = [
   { path: '/viewshed', component: () => import('../pages/ViewshedAnalysis.vue') },
   { path: '/data-import', component: () => import('../pages/DataImport.vue') },
   { path: '/earthquake', component: () => import('../pages/EarthquakeHeatmap.vue') },
-  { path: '/dashboard', component: () => import('../pages/Dashboard.vue') },
   { path: '/bigscreen', component: () => import('../pages/BigScreen.vue') },
+  { path: '/data-management', component: () => import('../pages/DataManagement.vue'), meta: { plain: true } },
 ]
 
 export default createRouter({
