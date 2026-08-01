@@ -344,7 +344,6 @@ onMounted(() => {
   else {
     viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(108, 35, 15000000) })
   }
-  geojsonMethods.setupGeoJSONClick()
 })
 
 watch(() => store.selectedEarthquake, (eq) => {

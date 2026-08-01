@@ -9,6 +9,7 @@ const routes = [
   { path: '/earthquake', component: () => import('../pages/EarthquakeHeatmap.vue') },
   { path: '/bigscreen', component: () => import('../pages/BigScreen.vue') },
   { path: '/data-management', component: () => import('../pages/DataManagement.vue'), meta: { plain: true } },
+  { path: '/factory/:id', component: () => import('../pages/FactoryDetail.vue'), meta: { plain: true } },
 ]
 
 export default createRouter({

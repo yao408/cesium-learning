@@ -73,6 +73,11 @@
           <p>🔄 圆柱更新: <strong>{{ perfStats.lastUpdateTime.toFixed(0) }}ms</strong></p>
           <p>📊 圆柱数量: <strong>{{ perfStats.entityCount + perfStats.clusterCount }}</strong></p>
         </div>
+
+        <!-- 地震统计图表 -->
+        <div class="panel">
+          <EarthquakeChart />
+        </div>
       </div>
       </div>
     </aside>
@@ -90,6 +95,7 @@ import * as Cesium from 'cesium'
 import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
 import { useCameraInit } from '../composables/useCameraInit.js'
+import EarthquakeChart from '../components/panels/EarthquakeChart.vue'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()

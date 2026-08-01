@@ -59,10 +59,9 @@ onMounted(() => {
 <style scoped>
 .import-btn {
   padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid #d9d9d9;
+  background: rgba(254, 252, 245, 0.88);
+  color: #333;
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
@@ -71,12 +70,13 @@ onMounted(() => {
 }
 
 .import-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(254, 252, 245, 1);
+  color: #2d8a4e;
 }
 
 .hint {
   margin: 8px 0 0 0;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: #999;
 }
 </style>

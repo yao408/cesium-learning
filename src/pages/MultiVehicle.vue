@@ -49,6 +49,7 @@
 
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
 import * as Cesium from 'cesium'
 import ControlPanel from '../components/ControlPanel.vue'
 import MapOverlay from '../components/MapOverlay.vue'
@@ -57,7 +58,9 @@ import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useSiteMarkers } from '../composables/useSiteMarkers.js'
 import { useCameraInit } from '../composables/useCameraInit.js'
 import { useVehicleSimulation } from '../composables/useVehicleSimulation.js'
+import { getFactoryPositions } from '../data/factories.js'
 
+const router = useRouter()
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
 const { clearAll, loadWatchtowers, loadVillages } = useSiteMarkers()
@@ -103,6 +106,9 @@ function showPopupAlert(msg, type) {
 }
 
 function handleMapClick(position) {
+  // 先检查是否点击了工厂标记
+  if (handleFactoryClick({ position })) return
+
   let cartesian = viewer.scene.pickPosition(position)
   if (!Cesium.defined(cartesian)) {
     cartesian = viewer.camera.pickEllipsoid(position, viewer.scene.globe.ellipsoid)
@@ -166,6 +172,51 @@ function handleMapClick(position) {
   }
 }
 
+// ==================== 工厂标记 ====================
+let factoryEntities = []
+
+function loadFactoryMarkers() {
+  if (!viewer) return
+  
+  // 清除已有标记
+  factoryEntities.forEach(e => viewer.entities.remove(e))
+  factoryEntities = []
+  
+  const factories = getFactoryPositions()
+  factories.forEach(factory => {
+    const entity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(factory.position.lng, factory.position.lat, 0),
+      billboard: {
+        image: '/icons/home.svg',
+        width: 32,
+        height: 32,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+      // 自定义属性
+      properties: {
+        factoryId: factory.id,
+        factoryName: factory.name,
+      }
+    })
+    factoryEntities.push(entity)
+  })
+}
+
+function handleFactoryClick(click) {
+  if (!viewer || !viewer.scene) return false
+  const pickedObject = viewer.scene.pick(click.position)
+  if (Cesium.defined(pickedObject) && Cesium.defined(pickedObject.id)) {
+    const entity = pickedObject.id
+    if (entity.properties && entity.properties.factoryId) {
+      const factoryId = entity.properties.factoryId.getValue()
+      router.push(`/factory/${factoryId}`)
+      return true
+    }
+  }
+  return false
+}
+
 function createMarkerIcon(bgColor) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="80" viewBox="0 0 64 80">
     <defs>
@@ -212,9 +263,8 @@ function switchBaseLayer(type) {
 function updateClickHandler() {
   if (!clickHandler) return
   clickHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  if (drawingMode.value || routeMode.value) {
-    clickHandler.setInputAction((click) => { handleMapClick(click.position) }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-  }
+  // 总是设置点击事件，处理工厂标记点击和路径绘制
+  clickHandler.setInputAction((click) => { handleMapClick(click.position) }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 }
 
 onMounted(() => {
@@ -311,9 +361,13 @@ onMounted(() => {
   setupVehicles(viewer)
 
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  updateClickHandler()
 
   loadWatchtowers(store.watchtowers)
   loadVillages(store.hazards)
+  
+  // 加载工厂标记
+  loadFactoryMarkers()
 })
 
 onBeforeUnmount(() => {
@@ -322,6 +376,9 @@ onBeforeUnmount(() => {
   viewer.entities.values
     .filter(e => e.name === '洪水淹没范围')
     .forEach(e => viewer.entities.remove(e))
+  // 清理工厂标记
+  factoryEntities.forEach(e => viewer.entities.remove(e))
+  factoryEntities = []
   if (viewer) {
     if (cameraMoveEndListener) viewer.camera.moveEnd.removeEventListener(cameraMoveEndListener)
   }
