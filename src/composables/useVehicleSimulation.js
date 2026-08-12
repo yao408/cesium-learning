@@ -32,15 +32,15 @@ export function useVehicleSimulation() {
 
   // ==================== SVG 标记图标 ====================
   function createMarkerIcon(bgColor) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="80" viewBox="0 0 64 80">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
       <defs>
         <filter id="s">
-          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.5"/>
+          <feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity="0.5"/>
         </filter>
       </defs>
       <g filter="url(#s)">
-        <path d="M32 8C20 8 12 17 12 28c0 6 3 17 20 44 17-27 20-38 20-44C52 17 44 8 32 8z" fill="${bgColor}" fill-opacity="0.55" stroke="${bgColor}" stroke-opacity="0.7" stroke-width="1.5"/>
-        <circle cx="32" cy="26" r="6" fill="${bgColor}" fill-opacity="0.85"/>
+        <path d="M16 4C10 4 6 8.5 6 14c0 3 1.5 8.5 10 22 8.5-13.5 10-19 10-22C26 8.5 22 4 16 4z" fill="${bgColor}" fill-opacity="0.55" stroke="${bgColor}" stroke-opacity="0.7" stroke-width="0.8"/>
+        <circle cx="16" cy="13" r="3" fill="${bgColor}" fill-opacity="0.85"/>
       </g>
     </svg>`
     return 'data:image/svg+xml,' + encodeURIComponent(svg)
@@ -155,17 +155,46 @@ export function useVehicleSimulation() {
   }
 
   // ==================== 车辆槽位管理 ====================
-  function initDefaultSlot() {
-    if (vehicleSlots.value.length === 0) {
-      const defaultPath = getActivePath()
-      vehicleSlots.value.push({
-        id: nextSlotId, name: '卡车 1', color: '#e74c3c',
-        path: defaultPath, entity: null, positionProperty: null, heading: 0, progress: 0,
-        pathGlow: null, pathGlass: null, pathRim: null, pathStartMarker: null,
-        pathWidth: 8, pathOpacity: 0.4,
+  function loadVehiclesFromStore() {
+    vehicleSlots.value = []
+    const storeVehicles = store.vehicles
+    if (storeVehicles && storeVehicles.length > 0) {
+      storeVehicles.forEach((v, i) => {
+        const colors = ['#e74c3c', '#f39c12', '#27ae60', '#e67e22', '#8e44ad']
+        const color = colors[i % colors.length]
+        let path = []
+        if (v.path) {
+          if (typeof v.path === 'string') {
+            try { path = JSON.parse(v.path) } catch {}
+          } else if (Array.isArray(v.path)) {
+            path = v.path
+          }
+        }
+        if (path.length < 2) {
+          path = [[v.lat, v.lng], [v.lat + 0.01, v.lng + 0.01]]
+        }
+        vehicleSlots.value.push({
+          id: v.id || nextSlotId,
+          name: v.name || `车辆 ${i + 1}`,
+          color,
+          path,
+          entity: null,
+          positionProperty: null,
+          heading: 0,
+          progress: 0,
+          pathGlow: null,
+          pathGlass: null,
+          pathRim: null,
+          pathStartMarker: null,
+          pathWidth: 8,
+          pathOpacity: 0.4,
+        })
+        if (!v.id) nextSlotId++
       })
-      activeSlotId.value = nextSlotId
-      nextSlotId++
+      if (vehicleSlots.value.length > 0) {
+        activeSlotId.value = vehicleSlots.value[0].id
+        userPath.value = [...vehicleSlots.value[0].path]
+      }
     }
   }
 
@@ -187,7 +216,7 @@ export function useVehicleSimulation() {
 
   function removeVehicleSlot(id) {
     const idx = vehicleSlots.value.findIndex(s => s.id === id)
-    if (idx < 0 || vehicleSlots.value.length <= 1) return
+    if (idx < 0) return
     const slot = vehicleSlots.value[idx]
     if (slot.entity) viewer.entities.remove(slot.entity)
     if (slot.pathGlow) { viewer.entities.remove(slot.pathGlow); slot.pathGlow = null }
@@ -197,14 +226,19 @@ export function useVehicleSimulation() {
     vehicleSlots.value.splice(idx, 1)
     if (activeSlotId.value === id) {
       const newActive = vehicleSlots.value[0]
-      activeSlotId.value = newActive.id
-      userPath.value = [...newActive.path]
+      if (newActive) {
+        activeSlotId.value = newActive.id
+        userPath.value = [...newActive.path]
+      } else {
+        activeSlotId.value = 0
+        userPath.value = []
+      }
     }
   }
 
   function switchVehicleSlot(id) {
     const current = vehicleSlots.value.find(s => s.id === activeSlotId.value)
-    if (current) { current.path = [...userPath.value] }
+    if (current && userPath.value.length > 0) { current.path = [...userPath.value] }
     activeSlotId.value = id
     const slot = vehicleSlots.value.find(s => s.id === id)
     if (slot) { userPath.value = [...slot.path] }
@@ -310,7 +344,7 @@ export function useVehicleSimulation() {
       const julianDate = Cesium.JulianDate.addSeconds(startTime, time, new Cesium.JulianDate())
       prop.addSample(julianDate, Cesium.Cartesian3.fromDegrees(path[i][1], path[i][0], heights[i] + 10))
     }
-    return { prop, startTime, totalTime: REF_TIME }
+    return { prop, startTime, totalDist, totalTime: REF_TIME }
   }
 
   // ==================== 模拟控制 ====================
@@ -318,6 +352,7 @@ export function useVehicleSimulation() {
     if (isPaused.value) {
       isPaused.value = false
       isSimulating.value = true
+      if (viewer) viewer.clock.shouldAnimate = true
       return
     }
     const slotsWithPath = vehicleSlots.value.filter(s => s.path.length >= 2)
@@ -329,7 +364,8 @@ export function useVehicleSimulation() {
       const currentTime = viewer.clock.currentTime
       let maxNewTime = 0
       const builds = newSlots.map(async (slot) => {
-        const { prop, startTime, totalTime } = await buildPositionProperty(slot.path)
+        const { prop, startTime, totalDist, totalTime } = await buildPositionProperty(slot.path)
+        slot.totalDist = totalDist
         const offset = Cesium.JulianDate.secondsDifference(currentTime, startTime)
         const samples = []
         const sampleCount = slot.path.length
@@ -389,13 +425,16 @@ export function useVehicleSimulation() {
     isSimulating.value = true
 
     let maxTotalTime = 0
+    let maxDist = 0
     let globalStartTime = null
     const builds = slotsWithPath.map(async (slot) => {
-      const { prop, startTime, totalTime } = await buildPositionProperty(slot.path)
+      const { prop, startTime, totalDist, totalTime } = await buildPositionProperty(slot.path)
       prop.forwardExtrapolationType = Cesium.ExtrapolationType.HOLD
       prop.backwardExtrapolationType = Cesium.ExtrapolationType.HOLD
       slot.positionProperty = prop
+      slot.totalDist = totalDist
       if (totalTime > maxTotalTime) maxTotalTime = totalTime
+      if (totalDist > maxDist) maxDist = totalDist
       if (!globalStartTime) globalStartTime = startTime
       return { slot, prop, startTime, totalTime }
     })
@@ -427,6 +466,7 @@ export function useVehicleSimulation() {
   function pauseSimulation() {
     isPaused.value = true
     isSimulating.value = false
+    if (viewer) viewer.clock.shouldAnimate = false
   }
 
   function stopSimulation() {
@@ -436,6 +476,7 @@ export function useVehicleSimulation() {
     vehicleSlots.value.forEach(slot => {
       if (slot.entity) { viewer.entities.remove(slot.entity); slot.entity = null }
       slot.positionProperty = null
+      slot.totalDist = 0
       slot.heading = 0
       slot.progress = 0
     })
@@ -463,8 +504,14 @@ export function useVehicleSimulation() {
       const cur = Cesium.JulianDate.toDate(viewer.clock.currentTime).getTime()
       vehicleProgress.value = ((cur - start) / (stopMs - start)) * 100
 
+      vehicleSlots.value.forEach(slot => {
+        if (slot.positionProperty && slot.totalDist) {
+          const maxDist = Math.max(...vehicleSlots.value.filter(s => s.totalDist).map(s => s.totalDist), 1)
+          slot.progress = Math.min(100, vehicleProgress.value * (maxDist / slot.totalDist))
+        }
+      })
+
       if (!activeSlot || !activeSlot.positionProperty) return
-      activeSlot.progress = vehicleProgress.value
 
       const pos = activeSlot.positionProperty.getValue(viewer.clock.currentTime)
       if (Cesium.defined(pos)) {
@@ -483,7 +530,7 @@ export function useVehicleSimulation() {
   }
 
   // ==================== 路径规划（带后端缓存） ====================
-  const BACKEND = 'http://localhost:8080/api'
+  const BACKEND = '/api'
 
   async function fetchOSRMRoutes(start, end, via) {
     const waypoints = via
@@ -854,9 +901,8 @@ export function useVehicleSimulation() {
     }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
     hoverHandler = handler
 
-    initDefaultSlot()
+    loadVehiclesFromStore()
     drawPathLine()
-    return autoLoadDispatchScenario()
   }
 
   function teardown() {
@@ -882,7 +928,7 @@ export function useVehicleSimulation() {
 
   watch(userPath, (val) => {
     const slot = vehicleSlots.value.find(s => s.id === activeSlotId.value)
-    if (slot) slot.path = [...val]
+    if (slot && val.length > 0) slot.path = [...val]
     drawPathLine()
   }, { deep: true })
 
@@ -898,7 +944,7 @@ export function useVehicleSimulation() {
     isSimulating, isPaused, vehicleSpeed, vehicleProgress, currentSegment,
     cameraLocked, userPath,
     routeMode, routeStart, routeEnd, routeOptions, selectedRoute,
-    initDefaultSlot, addVehicleSlot, removeVehicleSlot, switchVehicleSlot,
+    initDefaultSlot: loadVehiclesFromStore, loadVehiclesFromStore, addVehicleSlot, removeVehicleSlot, switchVehicleSlot,
     updatePathColor, updatePathWidth, updatePathOpacity,
     startSimulation, pauseSimulation, stopSimulation,
     fetchOSRMRoutes, startRoutePlanning, cancelRoutePlanning, selectRoute, confirmRoute,

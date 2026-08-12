@@ -1,0 +1,104 @@
+{
+  "buildings": [
+    {
+      "label": "主厂房",
+      "x": -2,
+      "z": -2.4,
+      "ry": 0,
+      "modelPath": "/building2.glb"
+    },
+    {
+      "label": "车间B",
+      "x": 67.5,
+      "z": 72,
+      "ry": -6.26,
+      "modelPath": "/building2.glb"
+    },
+    {
+      "label": "办公楼",
+      "x": -54.1,
+      "z": -11.4,
+      "ry": -10.966,
+      "modelPath": "/bangong.glb"
+    },
+    {
+      "label": "办公楼B",
+      "x": -26.2,
+      "z": 38.6,
+      "ry": -3.125,
+      "modelPath": "/bangong.glb"
+    },
+    {
+      "label": "积压站",
+      "x": -89.2,
+      "z": -24,
+      "ry": 0,
+      "modelPath": "/jiya.glb"
+    },
+    {
+      "label": "积压站B",
+      "x": 129.2,
+      "z": -35.8,
+      "ry": 0,
+      "modelPath": "/jiya.glb"
+    }
+  ],
+  "waterPool": {
+    "x": 77.3,
+    "z": -2.0,
+    "ry": 0
+  },
+  "greenArea": {
+    "x": 0.1,
+    "z": -1.2,
+    "ry": 0
+  },
+  "cargoContainers": {
+    "x": -96.7,
+    "z": 37.2,
+    "ry": 0
+  },
+  "roads": [],
+  "parkingLot": {
+    "x": -112,
+    "z": 12.6,
+    "cols": 8,
+    "rows": 3,
+    "angle": 0
+  },
+  "ground": {
+    "widthMul": 2.5,
+    "depthMul": 5
+  },
+  "sensors": [],
+  "restAreas": [
+    {
+      "name": "休息区1",
+      "x": 133.8,
+      "y": -0.02,
+      "z": 32.4,
+      "ry": 1.655
+    },
+    {
+      "name": "休息区2",
+      "x": -51.7,
+      "y": -0.02,
+      "z": 37.7,
+      "ry": -1.530
+    },
+    {
+      "name": "休息区3",
+      "x": 15.5,
+      "y": -0.02,
+      "z": 24.2,
+      "ry": 0.000
+    },
+    {
+      "name": "休息区5",
+      "x": -23.9,
+      "y": -0.02,
+      "z": -29.8,
+      "ry": 0.000
+    }
+  ]
+}

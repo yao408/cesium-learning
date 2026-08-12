@@ -15,6 +15,7 @@ export const useViewerStore = defineStore('viewer', () => {
       animation: false,
       timeline: false,
       baseLayerPicker: false,
+      baseLayer: false,
       fullscreenButton: false,
       geocoder: false,
       homeButton: false,
@@ -34,9 +35,25 @@ export const useViewerStore = defineStore('viewer', () => {
     v.scene.screenSpaceCameraController.minimumZoomDistance = 100
     v.scene.postProcessStages.fxaa.enabled = false
 
-    v.scene.setTerrain(
-      new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1))
-    )
+    // 地形暂时禁用（Cesium World Terrain 也消耗 Ion 额度）
+    // v.scene.setTerrain(
+    //   new Cesium.Terrain(Cesium.CesiumTerrainProvider.fromIonAssetId(1))
+    // )
+
+    const tiandituKey = import.meta.env.VITE_TIANDITU_KEY
+    if (tiandituKey) {
+      v.imageryLayers.addImageryProvider(
+        new Cesium.WebMapTileServiceImageryProvider({
+          url: `http://t0.tianditu.gov.cn/cia_w/wmts?tk=${tiandituKey}`,
+          layer: 'cia',
+          style: 'default',
+          format: 'tiles',
+          tileMatrixSetID: 'w',
+          maximumLevel: 18,
+          enablePickFeatures: false,
+        })
+      )
+    }
 
     v.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(104.07, 31.57, 80000),

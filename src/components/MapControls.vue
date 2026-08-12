@@ -35,6 +35,12 @@ export default {
     viewer() { return useViewerStore().viewer },
   },
   methods: {
+    _tryAttach() {
+      if (this._attached || !this.viewer) return
+      this.viewer.camera.changed.addEventListener(this.update)
+      this._attached = true
+      this.update()
+    },
     update() {
       if (!this.viewer) return
       const camera = this.viewer.camera
@@ -86,18 +92,19 @@ export default {
     },
   },
   mounted() {
-    const store = useViewerStore()
-    if (store.viewer) {
-      store.viewer.camera.changed.addEventListener(this.update)
-      this.update()
-    }
+    this._tryAttach()
   },
   beforeUnmount() {
-    const store = useViewerStore()
-    if (store.viewer) {
-      store.viewer.camera.changed.removeEventListener(this.update)
+    if (this._attached && this.viewer) {
+      this.viewer.camera.changed.removeEventListener(this.update)
+      this._attached = false
     }
   },
+  watch: {
+    viewer(val) {
+      if (val) this._tryAttach()
+    },
+  }
 }
 </script>
 
@@ -111,17 +118,7 @@ export default {
 .map-controls > * { pointer-events: auto; }
 
 .compass {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-  width: 44px;
-  height: 44px;
-  cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
-  background: rgba(255,255,255,0.45);
-  border-radius: 50%;
-  padding: 2px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  display: none;
 }
 .compass:hover { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3)); }
 .compass-star {
@@ -132,7 +129,8 @@ export default {
 .scale-bar {
   position: absolute;
   bottom: 20px;
-  right: 20px;
+  left: 20px;
+  right: auto;
   display: flex;
   flex-direction: row;
   align-items: baseline;
@@ -142,7 +140,7 @@ export default {
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.1);
   transform: scale(0.85);
-  transform-origin: right bottom;
+  transform-origin: left bottom;
 }
 .scale-ruler {
   position: relative;

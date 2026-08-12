@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080'
+const BACKEND = import.meta.env.VITE_BACKEND_URL || ''
 
 export const useScenarioStore = defineStore('scenario', () => {
   const scenarioName = ref('')
@@ -34,6 +34,14 @@ export const useScenarioStore = defineStore('scenario', () => {
 
   function setWatchtowers(list) {
     watchtowers.value = list
+  }
+
+  function addStation(station) {
+    watchtowers.value.push(station)
+  }
+
+  function removeStation(name) {
+    watchtowers.value = watchtowers.value.filter(s => s.name !== name)
   }
 
   // 从后端加载监测站
@@ -129,6 +137,43 @@ export const useScenarioStore = defineStore('scenario', () => {
     }
   }
 
+  async function addVehicle(payload) {
+    const res = await fetch(`${BACKEND}/api/vehicles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error('Failed to add vehicle')
+    const data = await res.json()
+    vehicles.value.push(data)
+    return data
+  }
+
+  async function updateVehicle(id, payload) {
+    const res = await fetch(`${BACKEND}/api/vehicles/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) throw new Error('Failed to update vehicle')
+    const data = await res.json()
+    const idx = vehicles.value.findIndex(v => v.id === id)
+    if (idx >= 0) vehicles.value[idx] = data
+    return data
+  }
+
+  async function deleteVehicle(id) {
+    const res = await fetch(`${BACKEND}/api/vehicles/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete vehicle')
+    vehicles.value = vehicles.value.filter(v => v.id !== id)
+  }
+
+  async function clearAllVehicles() {
+    const res = await fetch(`${BACKEND}/api/vehicles`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to clear vehicles')
+    vehicles.value = []
+  }
+
   function clearAll() {
     scenarioName.value = ''
     aoi.value = null
@@ -182,6 +227,8 @@ export const useScenarioStore = defineStore('scenario', () => {
     setAOI,
     setHazards,
     setWatchtowers,
+    addStation,
+    removeStation,
     loadWatchtowersFromBackend,
     setBlindSpots,
     setFloodLevel,
@@ -194,6 +241,10 @@ export const useScenarioStore = defineStore('scenario', () => {
     setDispatchCenter,
     setVehicles,
     loadVehiclesFromBackend,
+    addVehicle,
+    updateVehicle,
+    deleteVehicle,
+    clearAllVehicles,
     clearAll,
     moduleStatus,
     activeCount,

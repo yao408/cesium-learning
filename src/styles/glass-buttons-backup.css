@@ -1,0 +1,230 @@
+/* ============================================
+   玻璃拟态圆形按钮 - 备份样式
+   保存日期: 2026-08-10
+   原始位置: FactoryDetail.vue (第5169行起)
+   用途: 可用于其他需要玻璃效果的场景
+   ============================================ */
+
+/* 基础圆形按钮 */
+.glass-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 按钮内的SVG图标 */
+.glass-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke: rgba(226, 232, 240, 0.85);
+  transition: all 0.25s ease;
+}
+
+/* 主题切换按钮的文字标签 */
+.glass-btn .theme-label {
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.85);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* 主题按钮特殊样式（椭圆形） */
+.theme-toggle-btn {
+  width: auto !important;
+  border-radius: 22px !important;
+  padding: 0 12px !important;
+}
+
+/* Hover状态 */
+.glass-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.15),
+    0 0 20px rgba(255, 255, 255, 0.05);
+}
+
+/* Hover时图标变化 */
+.glass-btn:hover svg {
+  stroke: #ffffff;
+  transform: scale(1.1);
+}
+
+/* 点击/激活状态 */
+.glass-btn:active {
+  transform: translateY(0);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* 更多菜单容器 */
+.glass-more-wrapper {
+  position: relative;
+}
+
+/* 下拉菜单 */
+.glass-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 180px;
+  background: rgba(143, 180, 208, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(74, 107, 138, 0.3);
+  border-radius: 14px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+  padding: 8px;
+  z-index: 1000;
+  animation: menuSlideIn 0.2s ease-out;
+}
+
+/* 菜单滑入动画 */
+@keyframes menuSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 菜单项 */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: rgba(30, 58, 92, 0.85);
+  font-size: 13.5px;
+}
+
+/* 菜单项Hover */
+.menu-item:hover {
+  background: rgba(74, 144, 255, 0.12);
+  color: #2563eb;
+}
+
+/* 菜单项激活状态 */
+.menu-item.active {
+  background: rgba(74, 144, 255, 0.18);
+  color: #1e40af;
+  font-weight: 600;
+}
+
+/* 菜单项SVG图标 */
+.menu-item svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+
+/* 编辑模式激活按钮 */
+.edit-mode-active {
+  background: rgba(74, 144, 255, 0.25) !important;
+  border-color: rgba(74, 144, 255, 0.5) !important;
+}
+
+.edit-mode-active svg {
+  stroke: #4a90ff !important;
+}
+
+/* ============================================
+   平行四边形文字按钮 - 新样式（待用）
+   保存日期: 2026-08-10
+   特点：倾斜、蓝色、文字清晰、科技感强
+   适用场景：工具栏、操作按钮组、导航栏
+   ============================================ */
+
+/* 基础平行四边形按钮 */
+.parallelogram-btn {
+  position: relative;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(74, 144, 255, 0.9);
+  background: linear-gradient(135deg, rgba(74, 144, 255, 0.08) 0%, rgba(66, 226, 245, 0.06) 100%);
+  border: 1.5px solid rgba(74, 144, 255, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: skewX(-12deg); /* 平行四边形倾斜效果 */
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 按钮文字反向倾斜，保持可读性 */
+.parallelogram-btn span,
+.parallelogram-btn {
+  display: inline-block;
+  transform: skewX(12deg); /* 抵消父元素的倾斜 */
+}
+
+/* Hover状态 */
+.parallelogram-btn:hover {
+  background: linear-gradient(135deg, rgba(74, 144, 255, 0.18) 0%, rgba(66, 226, 245, 0.14) 100%);
+  border-color: rgba(74, 144, 255, 0.65);
+  color: #4a90ff;
+  transform: skewX(-12deg) translateY(-2px);
+  box-shadow:
+    0 4px 16px rgba(74, 144, 255, 0.25),
+    0 0 24px rgba(74, 144, 255, 0.15);
+  text-shadow: 0 0 10px rgba(74, 144, 255, 0.3);
+}
+
+/* 激活/选中状态 */
+.parallelogram-btn.active {
+  background: linear-gradient(135deg, rgba(74, 144, 255, 0.25) 0%, rgba(66, 226, 245, 0.18) 100%);
+  border-color: rgba(74, 144, 255, 0.7);
+  color: #2563eb;
+  font-weight: 600;
+  box-shadow:
+    inset 0 2px 8px rgba(74, 144, 255, 0.2),
+    0 2px 12px rgba(74, 144, 255, 0.25);
+}
+
+/* 主要操作按钮（特殊强调） */
+.parallelogram-btn.primary {
+  background: linear-gradient(135deg, rgba(74, 144, 255, 0.35) 0%, rgba(66, 226, 245, 0.28) 100%);
+  border-color: rgba(74, 144, 255, 0.75);
+  color: #ffffff;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* 主要按钮Hover */
+.parallelogram-btn.primary:hover {
+  background: linear-gradient(135deg, rgba(74, 144, 255, 0.5) 0%, rgba(66, 226, 245, 0.42) 100%);
+  border-color: #4a90ff;
+  transform: skewX(-12deg) translateY(-3px);
+  box-shadow:
+    0 6px 24px rgba(74, 144, 255, 0.45),
+    0 0 32px rgba(74, 144, 255, 0.3);
+}
+
+/* 点击效果 */
+.parallelogram-btn:active {
+  transform: skewX(-12deg) translateY(0);
+  transition: all 0.1s ease;
+}

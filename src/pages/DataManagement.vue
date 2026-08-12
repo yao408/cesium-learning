@@ -42,17 +42,39 @@
           </svg>
           <span>车辆数据</span>
         </button>
+        <button
+          class="dm-nav-item"
+          :class="{ active: activeTab === 'scenes' }"
+          @click="activeTab = 'scenes'; loadScenes()"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+            <line x1="9" y1="22" x2="9" y2="18"/>
+            <line x1="15" y1="22" x2="15" y2="18"/>
+            <line x1="8" y1="6" x2="8" y2="6.01"/>
+            <line x1="16" y1="6" x2="16" y2="6.01"/>
+            <line x1="12" y1="6" x2="12" y2="6.01"/>
+            <line x1="8" y1="10" x2="8" y2="10.01"/>
+            <line x1="16" y1="10" x2="16" y2="10.01"/>
+            <line x1="12" y1="10" x2="12" y2="10.01"/>
+            <line x1="8" y1="14" x2="8" y2="14.01"/>
+            <line x1="16" y1="14" x2="16" y2="14.01"/>
+            <line x1="12" y1="14" x2="12" y2="14.01"/>
+          </svg>
+          <span>场景数据</span>
+        </button>
       </nav>
     </aside>
 
     <main class="dm-main">
       <header class="dm-topbar">
         <div class="dm-topbar-left">
-          <h1 class="dm-topbar-title">{{ activeTab === 'stations' ? '监测站数据管理' : '车辆数据管理' }}</h1>
+          <h1 class="dm-topbar-title">{{ activeTab === 'stations' ? '监测站数据管理' : activeTab === 'vehicles' ? '车辆数据管理' : '场景数据管理' }}</h1>
         </div>
         <div class="dm-topbar-right">
           <span class="dm-count" v-if="activeTab === 'stations'">共 {{ stations.length }} 个站点</span>
           <span class="dm-count" v-if="activeTab === 'vehicles'">共 {{ vehicles.length }} 辆车</span>
+          <span class="dm-count" v-if="activeTab === 'scenes'">共 {{ scenes.length }} 个场景</span>
           <button class="dm-add-btn" @click="openForm(null)" v-if="activeTab === 'stations'">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"/>
@@ -66,6 +88,13 @@
               <line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
             新增车辆
+          </button>
+          <button class="dm-add-btn" @click="openSceneForm(null)" v-if="activeTab === 'scenes'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            新增场景
           </button>
         </div>
       </header>
@@ -126,7 +155,7 @@
         </div>
       </div>
 
-      <div class="dm-content" v-else>
+      <div class="dm-content" v-if="activeTab === 'vehicles'">
         <div class="dm-card">
           <table class="dm-table" v-if="vehicles.length">
             <thead>
@@ -134,6 +163,8 @@
                 <th>ID</th>
                 <th>名称</th>
                 <th>类型</th>
+                <th>起点</th>
+                <th>终点</th>
                 <th>速度</th>
                 <th>状态</th>
                 <th>操作</th>
@@ -148,6 +179,8 @@
                     {{ v.type || '运输车' }}
                   </span>
                 </td>
+                <td class="coord-cell">{{ formatVehicleCoord(v, 'start') }}</td>
+                <td class="coord-cell">{{ formatVehicleCoord(v, 'end') }}</td>
                 <td>{{ v.speed ?? '-' }} km/h</td>
                 <td>
                   <span class="dm-status" :class="v.status === '行驶中' ? 'on' : v.status === '到达' ? 'arrived' : 'off'">
@@ -172,6 +205,40 @@
             </div>
             <span class="dm-empty-text">暂无车辆数据</span>
             <button class="dm-add-btn" @click="openVehicleForm(null)">新增第一辆车</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dm-content" v-if="activeTab === 'scenes'">
+        <div class="dm-card">
+          <table class="dm-table" v-if="scenes.length">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>类型</th>
+                <th>经度</th>
+                <th>纬度</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in scenes" :key="s.id">
+                <td class="id-cell">{{ s.id }}</td>
+                <td class="name-cell">{{ s.name }}</td>
+                <td>{{ s.type }}</td>
+                <td>{{ s.lng?.toFixed(4) }}</td>
+                <td>{{ s.lat?.toFixed(4) }}</td>
+                <td class="action-cell">
+                  <button class="dm-action edit" @click="openSceneForm(s)">编辑</button>
+                  <button class="dm-action del" @click="confirmDeleteScene(s)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="dm-empty" v-else>
+            <span class="dm-empty-text">暂无场景数据</span>
+            <button class="dm-add-btn" @click="openSceneForm(null)">新增第一个场景</button>
           </div>
         </div>
       </div>
@@ -257,7 +324,7 @@
             <div class="dm-form-row">
               <label class="dm-field">
                 <span>车辆名称 *</span>
-                <input v-model="vehicleForm.name" placeholder="如：救援车-01" />
+                <input v-model="vehicleForm.name" placeholder="救援车-01" />
               </label>
               <label class="dm-field">
                 <span>车辆类型</span>
@@ -268,15 +335,33 @@
                 </select>
               </label>
             </div>
+            <div class="dm-form-section">
+              <span class="dm-section-label">起点</span>
+              <div class="dm-form-row">
+                <label class="dm-field">
+                  <span>起点经度 *</span>
+                  <input type="number" v-model.number="vehicleForm.startLng" step="0.0001" placeholder="104.0780" />
+                </label>
+                <label class="dm-field">
+                  <span>起点纬度 *</span>
+                  <input type="number" v-model.number="vehicleForm.startLat" step="0.0001" placeholder="31.5750" />
+                </label>
+              </div>
+            </div>
+            <div class="dm-form-section">
+              <span class="dm-section-label">终点</span>
+              <div class="dm-form-row">
+                <label class="dm-field">
+                  <span>终点经度 *</span>
+                  <input type="number" v-model.number="vehicleForm.endLng" step="0.0001" placeholder="104.0880" />
+                </label>
+                <label class="dm-field">
+                  <span>终点纬度 *</span>
+                  <input type="number" v-model.number="vehicleForm.endLat" step="0.0001" placeholder="31.5850" />
+                </label>
+              </div>
+            </div>
             <div class="dm-form-row">
-              <label class="dm-field">
-                <span>经度 *</span>
-                <input type="number" v-model.number="vehicleForm.lng" step="0.0001" placeholder="104.0780" />
-              </label>
-              <label class="dm-field">
-                <span>纬度 *</span>
-                <input type="number" v-model.number="vehicleForm.lat" step="0.0001" placeholder="31.5750" />
-              </label>
               <label class="dm-field small">
                 <span>速度(km/h)</span>
                 <input type="number" v-model.number="vehicleForm.speed" step="1" placeholder="60" />
@@ -289,25 +374,19 @@
                   <option value="到达">到达</option>
                 </select>
               </label>
+              <label class="dm-field small">
+                <span>载重/人数</span>
+                <input v-model="vehicleForm.capacity" placeholder="如：4" />
+              </label>
             </div>
             <div class="dm-form-row">
               <label class="dm-field">
                 <span>驾驶员</span>
-                <input v-model="vehicleForm.driver" placeholder="选填" />
+                <input v-model="vehicleForm.driver" placeholder="张三" />
               </label>
               <label class="dm-field">
                 <span>车牌号</span>
-                <input v-model="vehicleForm.plateNumber" placeholder="选填" />
-              </label>
-              <label class="dm-field small">
-                <span>载重/人数</span>
-                <input v-model="vehicleForm.capacity" placeholder="选填" />
-              </label>
-            </div>
-            <div class="dm-form-row">
-              <label class="dm-field full">
-                <span>行驶路径 (JSON)</span>
-                <textarea v-model="vehicleForm.path" rows="3" placeholder='[[31.57, 104.07], [31.58, 104.08]]'></textarea>
+                <input v-model="vehicleForm.plateNumber" placeholder="川A·12345" />
               </label>
             </div>
             <div class="dm-form-row">
@@ -325,24 +404,88 @@
       </div>
     </Teleport>
 
+    <Teleport to="body">
+      <div class="dm-overlay" v-if="sceneFormVisible" @click.self="closeSceneForm">
+        <div class="dm-modal">
+          <div class="dm-modal-header">
+            <h3>{{ editingSceneId ? '编辑场景' : '新增场景' }}</h3>
+            <button class="dm-modal-close" @click="closeSceneForm">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <div class="dm-modal-body">
+            <div class="dm-form-row">
+              <label class="dm-field">
+                <span>场景名称 *</span>
+                <input v-model="sceneForm.name" placeholder="如：A区厂房" />
+              </label>
+              <label class="dm-field">
+                <span>场景类型</span>
+                <select v-model="sceneForm.type">
+                  <option value="生产车间">生产车间</option>
+                  <option value="装配车间">装配车间</option>
+                  <option value="仓储中心">仓储中心</option>
+                  <option value="仓库">仓库</option>
+                </select>
+              </label>
+            </div>
+            <div class="dm-form-row">
+              <label class="dm-field">
+                <span>经度 *</span>
+                <input type="number" v-model.number="sceneForm.lng" step="0.0001" />
+              </label>
+              <label class="dm-field">
+                <span>纬度 *</span>
+                <input type="number" v-model.number="sceneForm.lat" step="0.0001" />
+              </label>
+              <label class="dm-field small">
+                <span>海拔(m)</span>
+                <input type="number" v-model.number="sceneForm.height" step="1" />
+              </label>
+            </div>
+            <div class="dm-form-row">
+              <label class="dm-field full">
+                <span>描述</span>
+                <textarea v-model="sceneForm.description" rows="2" placeholder="选填"></textarea>
+              </label>
+            </div>
+          </div>
+          <div class="dm-modal-footer">
+            <button class="dm-btn cancel" @click="closeSceneForm">取消</button>
+            <button class="dm-btn primary" @click="saveScene">保存</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <div class="dm-toast" v-if="toast.visible" :class="toast.type">{{ toast.message }}</div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useScenarioStore } from '../stores/scenarioStore.js'
+import { fetchScenes, createScene, updateScene, deleteScene } from '../api/sceneApi.js'
 
 const router = useRouter()
+const store = useScenarioStore()
 const activeTab = ref('stations')
 const stations = ref([])
-const vehicles = ref([])
+const vehicles = computed(() => store.vehicles)
 const formVisible = ref(false)
 const editingId = ref(null)
 const vehicleFormVisible = ref(false)
 const editingVehicleId = ref(null)
 
-const BACKEND = import.meta.env.VITE_BACKEND || 'http://localhost:8080'
+const scenes = ref([])
+const sceneFormVisible = ref(false)
+const editingSceneId = ref(null)
+const sceneForm = reactive({ name: '', type: '生产车间', lat: 0, lng: 0, height: 0, description: '' })
+
+const BACKEND = import.meta.env.VITE_BACKEND || ''
 
 const form = reactive({
   name: '',
@@ -357,13 +500,14 @@ const form = reactive({
 const toast = reactive({ visible: false, message: '', type: 'success' })
 
 const vehicleForm = reactive({
-  name: '',
+  name: '救援车-01',
   type: '救援车',
-  lng: null,
-  lat: null,
-  speed: null,
+  startLng: null,
+  startLat: null,
+  endLng: null,
+  endLat: null,
+  speed: 60,
   status: '待命',
-  path: '',
   driver: '',
   capacity: '',
   plateNumber: '',
@@ -375,6 +519,21 @@ function showToast(msg, type = 'success') {
   toast.type = type
   toast.visible = true
   setTimeout(() => { toast.visible = false }, 2500)
+}
+
+function formatVehicleCoord(vehicle, which) {
+  let pathArr = []
+  if (vehicle.path) {
+    if (typeof vehicle.path === 'string') {
+      try { pathArr = JSON.parse(vehicle.path) } catch {}
+    } else if (Array.isArray(vehicle.path)) {
+      pathArr = vehicle.path
+    }
+  }
+  if (pathArr.length === 0) return '-'
+  const pt = which === 'start' ? pathArr[0] : pathArr[pathArr.length - 1]
+  if (!pt || pt.length < 2) return '-'
+  return `${pt[1]?.toFixed(4)}, ${pt[0]?.toFixed(4)}`
 }
 
 function goBack() {
@@ -475,8 +634,7 @@ async function confirmDelete(station) {
 
 async function loadVehicles() {
   try {
-    const res = await fetch(`${BACKEND}/api/vehicles`)
-    vehicles.value = await res.json()
+    await store.loadVehiclesFromBackend()
   } catch {
     showToast('无法获取车辆数据', 'error')
   }
@@ -485,14 +643,25 @@ async function loadVehicles() {
 function openVehicleForm(vehicle) {
   if (vehicle) {
     editingVehicleId.value = vehicle.id
+    let pathArr = []
+    if (vehicle.path) {
+      if (typeof vehicle.path === 'string') {
+        try { pathArr = JSON.parse(vehicle.path) } catch {}
+      } else if (Array.isArray(vehicle.path)) {
+        pathArr = vehicle.path
+      }
+    }
+    const start = pathArr[0] || [null, null]
+    const end = pathArr[pathArr.length - 1] || [null, null]
     Object.assign(vehicleForm, {
       name: vehicle.name,
       type: vehicle.type || '救援车',
-      lng: vehicle.lng,
-      lat: vehicle.lat,
-      speed: vehicle.speed,
+      startLng: start[1] ?? null,
+      startLat: start[0] ?? null,
+      endLng: end[1] ?? null,
+      endLat: end[0] ?? null,
+      speed: vehicle.speed ?? 60,
       status: vehicle.status || '待命',
-      path: vehicle.path || '',
       driver: vehicle.driver || '',
       capacity: vehicle.capacity || '',
       plateNumber: vehicle.plateNumber || '',
@@ -501,13 +670,14 @@ function openVehicleForm(vehicle) {
   } else {
     editingVehicleId.value = null
     Object.assign(vehicleForm, {
-      name: '',
+      name: '救援车-01',
       type: '救援车',
-      lng: null,
-      lat: null,
-      speed: null,
+      startLng: null,
+      startLat: null,
+      endLng: null,
+      endLat: null,
+      speed: 60,
       status: '待命',
-      path: '',
       driver: '',
       capacity: '',
       plateNumber: '',
@@ -523,18 +693,20 @@ function closeVehicleForm() {
 }
 
 async function saveVehicle() {
-  if (!vehicleForm.name || vehicleForm.lng == null || vehicleForm.lat == null) {
-    showToast('请填写名称、经度和纬度', 'error')
+  if (!vehicleForm.name || vehicleForm.startLng == null || vehicleForm.startLat == null
+    || vehicleForm.endLng == null || vehicleForm.endLat == null) {
+    showToast('请填写名称、起点经纬度和终点经纬度', 'error')
     return
   }
+  const path = `[[${vehicleForm.startLat}, ${vehicleForm.startLng}], [${vehicleForm.endLat}, ${vehicleForm.endLng}]]`
   const payload = {
     name: vehicleForm.name,
     type: vehicleForm.type,
-    lng: vehicleForm.lng,
-    lat: vehicleForm.lat,
+    lng: vehicleForm.startLng,
+    lat: vehicleForm.startLat,
     speed: vehicleForm.speed,
     status: vehicleForm.status,
-    path: vehicleForm.path,
+    path,
     driver: vehicleForm.driver,
     capacity: vehicleForm.capacity,
     plateNumber: vehicleForm.plateNumber,
@@ -542,22 +714,13 @@ async function saveVehicle() {
   }
   try {
     if (editingVehicleId.value) {
-      await fetch(`${BACKEND}/api/vehicles/${editingVehicleId.value}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      await store.updateVehicle(editingVehicleId.value, payload)
       showToast('车辆已更新')
     } else {
-      await fetch(`${BACKEND}/api/vehicles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      await store.addVehicle(payload)
       showToast('车辆已新增')
     }
     closeVehicleForm()
-    await loadVehicles()
   } catch {
     showToast('操作失败，请检查网络', 'error')
   }
@@ -566,11 +729,65 @@ async function saveVehicle() {
 async function confirmDeleteVehicle(vehicle) {
   if (!confirm(`确定删除「${vehicle.name}」吗？`)) return
   try {
-    await fetch(`${BACKEND}/api/vehicles/${vehicle.id}`, { method: 'DELETE' })
+    await store.deleteVehicle(vehicle.id)
     showToast('车辆已删除')
-    await loadVehicles()
   } catch {
     showToast('删除失败', 'error')
+  }
+}
+
+async function loadScenes() {
+  try {
+    scenes.value = await fetchScenes()
+  } catch (e) {
+    console.warn('加载场景失败:', e.message)
+  }
+}
+
+function openSceneForm(scene) {
+  if (scene) {
+    editingSceneId.value = scene.id
+    Object.assign(sceneForm, scene)
+  } else {
+    editingSceneId.value = null
+    Object.assign(sceneForm, { name: '', type: '生产车间', lat: 0, lng: 0, height: 0, description: '' })
+  }
+  sceneFormVisible.value = true
+}
+
+function closeSceneForm() {
+  sceneFormVisible.value = false
+  editingSceneId.value = null
+}
+
+async function saveScene() {
+  if (!sceneForm.name || sceneForm.lng == null || sceneForm.lat == null) {
+    showToast('请填写名称、经度和纬度', 'error')
+    return
+  }
+  try {
+    if (editingSceneId.value) {
+      await updateScene(editingSceneId.value, sceneForm)
+      showToast('场景已更新')
+    } else {
+      await createScene({ ...sceneForm, id: 'scene-' + Date.now() })
+      showToast('场景已新增')
+    }
+    closeSceneForm()
+    await loadScenes()
+  } catch (e) {
+    showToast('保存失败: ' + e.message, 'error')
+  }
+}
+
+async function confirmDeleteScene(scene) {
+  if (!confirm(`确定删除场景「${scene.name}」？`)) return
+  try {
+    await deleteScene(scene.id)
+    showToast('场景已删除')
+    await loadScenes()
+  } catch (e) {
+    showToast('删除失败: ' + e.message, 'error')
   }
 }
 
@@ -842,6 +1059,12 @@ onMounted(() => {
   font-size: 13px;
 }
 
+.coord-cell {
+  font-size: 13px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #475569;
+}
+
 .name-cell {
   font-weight: 500;
   color: #1e293b;
@@ -1069,6 +1292,19 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 500;
   color: #475569;
+}
+
+.dm-form-section {
+  margin-bottom: 8px;
+}
+
+.dm-section-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b82f6;
+  margin-bottom: 6px;
+  padding-left: 2px;
 }
 
 .dm-field input,

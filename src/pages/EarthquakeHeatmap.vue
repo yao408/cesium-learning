@@ -96,6 +96,7 @@ import { useScenarioStore } from '../stores/scenarioStore.js'
 import { useViewerStore } from '../stores/viewerStore.js'
 import { useCameraInit } from '../composables/useCameraInit.js'
 import EarthquakeChart from '../components/panels/EarthquakeChart.vue'
+import { wgs84ToGCJ02 } from '../utils/geo'
 
 const store = useScenarioStore()
 const viewerStore = useViewerStore()
@@ -116,7 +117,7 @@ let glowEntities = []
 // Primitive 优化相关
 let quakePrimitive = null
 let clusterPrimitive = null
-const usePrimitive = ref(true)  // true=使用Primitive, false=使用Entity
+const usePrimitive = ref(false)  // true=使用Primitive, false=使用Entity（可点选）
 const renderMode = ref('cylinder') // 'cylinder' | 'point' | 'pointOffset' 渲染模式
 
 // 数据缓存
@@ -590,7 +591,26 @@ function stopPulse() {
 }
 
 function syncCylinderScale() {
-  return
+  if (!viewer) return
+  const h = viewer.camera.positionCartographic.height
+
+  if (clusterEntities.length) {
+    const baseH = 80000
+    const baseR = 30000
+    const scale = Math.max(0.15, Math.min(1, h / 5000000))
+    const newH = baseH * scale
+    const newR = baseR * scale
+
+    clusterEntities.forEach(e => {
+      if (e.cylinder && e._quakeData) {
+        e.cylinder.length = newH
+        e.cylinder.topRadius = newR
+        e.cylinder.bottomRadius = newR
+        const qd = e._quakeData
+        e.position = Cesium.Cartesian3.fromDegrees(qd.lon, qd.lat, newH / 2)
+      }
+    })
+  }
 }
 
 function updateQuakes() {
@@ -620,6 +640,23 @@ function switchStyle() {
 
 watch(minMag, updateQuakes)
 
+async function reverseGeocode(lon, lat) {
+  try {
+    const gcj = wgs84ToGCJ02(lat, lon)
+    const key = import.meta.env.VITE_AMAP_KEY
+    if (!key) return ''
+    const res = await fetch(`https://restapi.amap.com/v3/geocode/regeo?key=${key}&location=${gcj.lng},${gcj.lat}`)
+    const data = await res.json()
+    if (data.status === '1' && data.regeocode) {
+      const ac = data.regeocode.addressComponent
+      return ac.province ? ac.province + (ac.city ? ac.city : '') + (ac.district ? ac.district : '') : data.regeocode.formatted_address || ''
+    }
+  } catch (e) {
+    console.warn('[reverseGeocode]', e)
+  }
+  return ''
+}
+
 function initClickHandler() {
   if (!viewer) return
   if (clickHandler) return
@@ -633,10 +670,13 @@ function initClickHandler() {
     ))
     const lon = Cesium.Math.toDegrees(cartographic.longitude)
     const lat = Cesium.Math.toDegrees(cartographic.latitude)
-    selectedQuake.value = { lon, lat }
+    const qd = entity._quakeData || {}
+    const placeCn = await reverseGeocode(lon, lat)
+    const place = qd.place || placeCn || '未知'
+    selectedQuake.value = { lon, lat, mag: qd.mag, depth: qd.depth, place, time: qd.time }
     selectedEntity = entity
     startPulse(entity)
-    store.setSelectedEarthquake({ lon, lat })
+    store.setSelectedEarthquake({ lon, lat, magnitude: qd.mag, mag: qd.mag, depth: qd.depth, place, time: qd.time })
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 }
 

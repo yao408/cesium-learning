@@ -10,19 +10,28 @@
         <button class="close-btn" @click="showPanel = false">✕</button>
       </div>
       
+      <div class="panel-section-title">业务图层</div>
       <div class="layer-list">
-        <div v-for="layer in layers" :key="layer.id" class="layer-item">
+        <div v-for="layer in bizLayers" :key="layer.key" class="layer-item biz-item" @click="toggleBizLayer(layer)">
+          <span class="toggle-dot" :class="{ on: layerVisible[layer.key] }" :style="layerVisible[layer.key] ? { background: layer.color } : {}"></span>
+          <span class="layer-name">{{ layer.label }}</span>
+        </div>
+      </div>
+      
+      <div class="panel-section-title">Cesium 图层</div>
+      <div class="layer-list">
+        <div v-for="layer in cesiumLayers" :key="layer.id" class="layer-item">
           <input 
             type="checkbox" 
             v-model="layer.show" 
-            @change="toggleLayer(layer)"
+            @change="toggleCesiumLayer(layer)"
           />
           <span class="layer-name">{{ layer.name }}</span>
           <button class="delete-btn" @click="removeLayer(layer)">🗑️</button>
         </div>
       </div>
       
-      <div v-if="layers.length === 0" class="empty-tip">
+      <div v-if="cesiumLayers.length === 0 && bizLayers.length === 0" class="empty-tip">
         暂无图层
       </div>
     </div>
@@ -32,21 +41,29 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import * as Cesium from 'cesium'
+import { useLayerVisibility } from '../composables/useLayerVisibility.js'
 
 const props = defineProps({
   viewer: Object
 })
 
+const { layerVisible, layers: bizLayers, toggleLayer } = useLayerVisibility()
 const showPanel = ref(false)
-const layers = ref([])
+const cesiumLayers = ref([])
 
-// 从 viewer 获取图层列表
-function updateLayers() {
+function toggleBizLayer(layer) {
+  toggleLayer(layer)
+  // 同步控制 Cesium entity 显隐
+  if (!props.viewer) return
+  // 业务图层控制已在 Dashboard 的 toggleLayer 中处理
+  // 这里只需要触发 reactive 更新即可
+}
+
+function updateCesiumLayers() {
   if (!props.viewer) return
   
   const newLayers = []
   
-  // 影像图层
   const imageryLayers = props.viewer.imageryLayers
   for (let i = 0; i < imageryLayers.length; i++) {
     const layer = imageryLayers.get(i)
@@ -59,7 +76,6 @@ function updateLayers() {
     })
   }
   
-  // Entity 图层
   const entities = props.viewer.entities.values
   if (entities.length > 0) {
     newLayers.push({
@@ -70,7 +86,6 @@ function updateLayers() {
     })
   }
   
-  // 3D Tiles
   const primitives = props.viewer.scene.primitives
   for (let i = 0; i < primitives.length; i++) {
     const primitive = primitives.get(i)
@@ -85,26 +100,20 @@ function updateLayers() {
     }
   }
   
-  layers.value = newLayers
+  cesiumLayers.value = newLayers
 }
 
-function toggleLayer(layer) {
+function toggleCesiumLayer(layer) {
   if (!props.viewer) return
   
   if (layer.type === 'imagery') {
     const imageryLayer = props.viewer.imageryLayers.get(layer.index)
-    if (imageryLayer) {
-      imageryLayer.show = layer.show
-    }
+    if (imageryLayer) imageryLayer.show = layer.show
   } else if (layer.type === 'entity') {
-    props.viewer.entities.values.forEach(e => {
-      e.show = layer.show
-    })
+    props.viewer.entities.values.forEach(e => { e.show = layer.show })
   } else if (layer.type === 'tiles') {
     const primitive = props.viewer.scene.primitives.get(layer.index)
-    if (primitive) {
-      primitive.show = layer.show
-    }
+    if (primitive) primitive.show = layer.show
   }
 }
 
@@ -113,130 +122,161 @@ function removeLayer(layer) {
   
   if (layer.type === 'imagery') {
     const imageryLayer = props.viewer.imageryLayers.get(layer.index)
-    if (imageryLayer) {
-      props.viewer.imageryLayers.remove(imageryLayer)
-    }
+    if (imageryLayer) props.viewer.imageryLayers.remove(imageryLayer)
   } else if (layer.type === 'entity') {
     props.viewer.entities.removeAll()
   } else if (layer.type === 'tiles') {
     const primitive = props.viewer.scene.primitives.get(layer.index)
-    if (primitive) {
-      props.viewer.scene.primitives.remove(primitive)
-    }
+    if (primitive) props.viewer.scene.primitives.remove(primitive)
   }
   
-  updateLayers()
+  updateCesiumLayers()
 }
 
 onMounted(() => {
-  updateLayers()
-  // 定时更新图层列表
-  setInterval(updateLayers, 2000)
+  updateCesiumLayers()
+  setInterval(updateCesiumLayers, 2000)
 })
 </script>
 
 <style scoped>
 .layer-manager {
-  position: absolute;
-  right: 12px;
-  top: 12px;
+  position: relative;
   z-index: 1000;
 }
 
 .layer-toggle {
-  width: 36px;
-  height: 36px;
-  border: 1px solid #d9d9d9;
-  background: rgba(254, 252, 245, 0.88);
-  color: #333;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 20px;
+  transition: all 0.2s;
 }
 
 .layer-toggle:hover {
-  background: rgba(254, 252, 245, 1);
-  border-color: #2d8a4e;
-  color: #2d8a4e;
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
 }
 
 .layer-panel {
   position: absolute;
   right: 0;
-  top: 44px;
+  top: 48px;
   width: 220px;
-  background: rgba(254, 252, 245, 0.95);
-  border: 1px solid #d9d9d9;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e8e8e8;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .close-btn {
   border: none;
   background: none;
-  color: #999;
+  color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .close-btn:hover {
-  color: #333;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.panel-section-title {
+  padding: 8px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .layer-list {
-  max-height: 300px;
+  max-height: 200px;
   overflow-y: auto;
 }
 
 .layer-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: 8px 14px;
   font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  transition: background 0.15s;
 }
 
 .layer-item:hover {
-  background: #f5f5f5;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.biz-item {
+  cursor: pointer;
+  gap: 10px;
 }
 
 .layer-item input[type="checkbox"] {
   margin-right: 8px;
+  accent-color: #2d8a4e;
 }
 
 .layer-name {
   flex: 1;
-  color: #333;
 }
 
 .delete-btn {
   border: none;
   background: none;
-  color: #999;
   cursor: pointer;
+  opacity: 0.5;
   font-size: 12px;
-  padding: 2px 4px;
 }
 
 .delete-btn:hover {
-  color: #ff4d4f;
+  opacity: 1;
+}
+
+.toggle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.toggle-dot.on {
+  box-shadow: 0 0 6px currentColor;
 }
 
 .empty-tip {
-  padding: 20px;
+  padding: 16px;
   text-align: center;
-  color: #999;
   font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
 }
 </style>
